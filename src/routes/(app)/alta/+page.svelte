@@ -19,6 +19,12 @@
     deuda_hipoteca: 'M4 11l8-6 8 6M6 10v9h12v-9M10 19v-5h4v5',
     inmueble: 'M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-5h-6v5H5a1 1 0 0 1-1-1z',
   };
+  // These go in through their own screen (b12), and come back here.
+  const SCREEN: Record<string, string> = {
+    inmueble: '/cuentas/nueva/inmueble?volver=alta',
+    vehiculo: '/cuentas/nueva/coche?volver=alta',
+    bien: '/cuentas/nueva/bien?volver=alta',
+  };
   const eur = (cents: number) => formatEuros(cents, { withCents: true });
   const meta = (a: (typeof data.accounts)[number]) =>
     `${KIND_LABEL[a.kind as keyof typeof KIND_LABEL] ?? a.kind}${
@@ -82,12 +88,8 @@
         <div class="kind">
           <a
             class="row"
-            href={k.kind === 'inmueble'
-              ? '/cuentas/nueva/inmueble?volver=alta'
-              : open
-                ? '?'
-                : `?tipo=${k.kind}`}
-            aria-expanded={k.kind === 'inmueble' ? undefined : open}
+            href={SCREEN[k.kind] ?? (open ? '?' : `?tipo=${k.kind}`)}
+            aria-expanded={SCREEN[k.kind] ? undefined : open}
           >
             <svg
               width="20"

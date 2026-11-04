@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { amortization, annuityCents, outstandingOn } from './debt.ts';
 import { type InterestTerms, MICRO, dailyAccrual, isPayDay, payment } from './interest.ts';
-import { assetCents, estimateCents, propertyCents, vehicleCents, wholeYears } from './valuation.ts';
+import {
+  assetCents,
+  assetIndex,
+  estimateCents,
+  propertyCents,
+  vehicleCents,
+  vehicleIndex,
+  wholeYears,
+} from './valuation.ts';
 
 const terms: InterestTerms = {
   tiers: [{ upToCents: 5_000_000, rateBp: 250 }, { rateBp: 0 }],
@@ -165,5 +173,32 @@ describe('propertyCents', () => {
     );
     // Without the index, as given.
     expect(propertyCents([own], [], '2030-01-01')).toBe(11_500_000);
+  });
+});
+
+describe('cars and goods along their curve', () => {
+  it('a car moves with Hacienda’s table from each anniversary; a value given is followed', () => {
+    const table = [
+      { yearsOver: 0, pctBp: 10_000 },
+      { yearsOver: 11, pctBp: 1_100 },
+      { yearsOver: 12, pctBp: 1_000 },
+    ];
+    const index = vehicleIndex(table, '2013-05-10');
+    // Entered on 1 Nov 2026 at 2.240 € (13 years: 10 %): flat after the table's last row.
+    const opening = [{ day: '2026-11-01', cents: 224_000 }];
+    expect(propertyCents(opening, index, '2030-01-01')).toBe(224_000);
+    // A 2015 car entered at 3.000 € loses from 11 % to 10 % on 2027-03-01.
+    const young = vehicleIndex(table, '2015-03-01');
+    expect(propertyCents([{ day: '2026-11-01', cents: 300_000 }], young, '2027-03-01')).toBe(
+      Math.round((300_000 * 1_000) / 1_100),
+    );
+  });
+
+  it('a good loses its yearly rate a little each month; at 0 % it keeps its value', () => {
+    const index = assetIndex(2_500, '2024-10-15');
+    const paid = [{ day: '2024-10-15', cents: 180_000 }];
+    expect(propertyCents(paid, index, '2025-10-15')).toBe(135_000);
+    expect(propertyCents(paid, index, '2025-04-20')).toBe(Math.round(180_000 * 0.75 ** 0.5));
+    expect(assetIndex(0, '2024-10-15')).toEqual([]);
   });
 });

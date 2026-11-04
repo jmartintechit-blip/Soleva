@@ -39,7 +39,8 @@ export interface Holdings {
     string,
     { purchaseCents: number; curve: { years: number; pctBp: number }[]; purchasedOn: Day }
   >;
-  // Homes: what was put into each (the opening refers to `from`) and its region's index.
+  // Homes, cars and goods with their details: what was put into each (a home's opening refers to
+  // `from`) and the series it moves with (INE's index, Hacienda's table or a yearly loss).
   properties: Record<
     string,
     {
@@ -95,7 +96,11 @@ export function valuation(h: Holdings, ledger: readonly Movement[], day: Day) {
   for (const a of h.accounts) {
     const cash = book.cash.get(a.id) ?? 0;
     if (DEBTS.includes(a.kind)) add(a.id, 'deudas', cash);
-    else if (a.kind === 'vehiculo' || a.kind === 'bien') {
+    else if ((a.kind === 'vehiculo' || a.kind === 'bien') && h.properties[a.id]) {
+      // RCoche / RBien: each value put in, along its curve.
+      const p = h.properties[a.id]!;
+      add(a.id, 'bienes', propertyCents(p.flows, p.index, day));
+    } else if (a.kind === 'vehiculo' || a.kind === 'bien') {
       const v = h.vehicles[a.id];
       const g = h.assets[a.id];
       const base = v

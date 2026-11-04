@@ -110,6 +110,15 @@ export const PROPERTY_KINDS = [
 ] as const;
 export type PropertyKind = (typeof PROPERTY_KINDS)[number]['kind'];
 
+// Otro bien (b12/RBien): its kind and how much it loses a year by default (editable).
+export const ASSET_KINDS = [
+  { kind: 'electronica', label: 'Electrónica', lossPct: 25 },
+  { kind: 'moto', label: 'Moto o bici', lossPct: 15 },
+  { kind: 'reloj', label: 'Reloj', lossPct: 5 },
+  { kind: 'joyas', label: 'Joyas y arte', lossPct: 0 },
+  { kind: 'otro', label: 'Otro', lossPct: 10 },
+] as const;
+
 // INE's codes of provinces and autonomous communities, as people write them.
 export const PROVINCE_NAME: Record<string, string> = {
   '01': 'Álava',

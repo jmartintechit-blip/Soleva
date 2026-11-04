@@ -1,4 +1,5 @@
-import { type Day, addDays, daysBetween } from './day.ts';
+import { addMonths } from './dates.ts';
+import { type Day, addDays, dayIn, dayOfMonth, daysBetween, monthOf } from './day.ts';
 import { roundHalfAwayFromZero } from './money.ts';
 
 // Whole years from `from` to `on` (an anniversary counts as a full year).
@@ -46,7 +47,7 @@ export function assetCents(
 }
 
 // 29 February's anniversary in a common year is 28 February.
-function anniversary(d: Day, years: number): Day {
+export function anniversary(d: Day, years: number): Day {
   const y = Number(d.slice(0, 4)) + years;
   const candidate = `${y}${d.slice(4)}`;
   return d.slice(5) === '02-29' && addDays(`${y}-02-28`, 1).slice(5) !== '02-29'
@@ -87,4 +88,24 @@ export function propertyCents(
     sum += now && base ? (f.cents * now) / base : f.cents;
   }
   return roundHalfAwayFromZero(sum);
+}
+
+// A car's curve for propertyCents: Hacienda's Anexo IV percentage from each anniversary of its
+// first registration (a value put in moves with it, as the table steps once a year).
+export const vehicleIndex = (
+  table: { yearsOver: number; pctBp: number }[],
+  firstRegistration: Day,
+) =>
+  [...table]
+    .sort((a, b) => a.yearsOver - b.yearsOver)
+    .map((r) => ({ quarter: anniversary(firstRegistration, r.yearsOver), indexE3: r.pctBp }));
+
+// Another good's curve: it loses `annualLossBp` a year, a little each month, for 50 years.
+export function assetIndex(annualLossBp: number, purchasedOn: Day) {
+  if (annualLossBp <= 0) return [];
+  const keep = 1 - annualLossBp / 10_000;
+  return Array.from({ length: 601 }, (_, k) => ({
+    quarter: dayIn(addMonths(monthOf(purchasedOn), k), dayOfMonth(purchasedOn)),
+    indexE3: Math.max(1, Math.round(1_000_000 * keep ** (k / 12))),
+  }));
 }

@@ -343,4 +343,38 @@ describe('units from outside', () => {
       131_510,
     );
   });
+
+  it('an estimate added as already held grows from when it was bought, its growth no gain of today', () => {
+    const h: Holdings = {
+      accounts: [{ id: 'brk', kind: 'broker' }],
+      instruments: { pm: { kind: 'estimado' } },
+      estimates: { 'brk|pm': 1200 },
+      estimatesSince: { 'brk|pm': '2026-03-01' },
+      vehicles: {},
+      assets: {},
+      properties: {},
+      market: market({}),
+    };
+    // 300 € put in in March, at 12 % a year: added to Soleva on 4 November.
+    const added: Movement = {
+      accountId: 'brk',
+      day: '2026-11-04',
+      seq: 0,
+      kind: 'ajuste',
+      amountCents: 0,
+      instrumentId: 'pm',
+      qtyE8: E8,
+      priceE8: toE8('300'),
+      fxE8: E8,
+      source: 'manual',
+    };
+    const today = Math.round(30_000 * 1.12 ** (248 / 365));
+    expect(valuation(h, [added], '2026-11-04').total).toBe(today);
+    expect(unitFlows(h, [added], '2026-11-03', '2026-11-04')).toEqual({ brk: today });
+    // Its cost is what was put in: the position shows the gain since March.
+    expect(fold([added]).holdings.get('brk|pm')).toEqual({ qtyE8: E8, costCents: 30_000 });
+    expect(valuation(h, [added], '2027-03-01').total).toBe(33_600);
+    // Without a day of purchase, from the day it came in.
+    expect(valuation({ ...h, estimatesSince: {} }, [added], '2026-11-04').total).toBe(30_000);
+  });
 });

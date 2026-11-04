@@ -26,6 +26,8 @@ export interface Holdings {
   instruments: Record<string, { kind: InstrumentKind }>;
   // Products without a public price: their user's yearly rate, per holding.
   estimates: Record<string, number>;
+  // And, for one added as already held, the day it was bought (it grows from there).
+  estimatesSince?: Record<string, Day>;
   vehicles: Record<
     string,
     {
@@ -121,17 +123,19 @@ export function valuation(h: Holdings, ledger: readonly Movement[], day: Day) {
     const kind = h.instruments[instrument]!.kind;
     let cents: number;
     if (kind === 'estimado') {
-      const buys = ledger
-        .filter(
-          (m) =>
-            !m.voided &&
-            m.accountId === account &&
-            m.instrumentId === instrument &&
-            m.qtyE8 &&
-            m.day <= day,
-        )
-        .map((m) => ({ day: m.day, cents: -m.amountCents }));
-      cents = estimateCents(buys, h.estimates[key] ?? 0, day);
+      const lots = ledger.filter(
+        (m) =>
+          !m.voided &&
+          m.accountId === account &&
+          m.instrumentId === instrument &&
+          m.qtyE8 &&
+          m.day <= day,
+      );
+      cents = estimateCents(
+        estimateContributions(lots, h.estimatesSince?.[key]),
+        h.estimates[key] ?? 0,
+        day,
+      );
     } else {
       const quote = h.market.close(instrument, day);
       const c = h.market.currency(instrument);
@@ -144,6 +148,18 @@ export function valuation(h: Holdings, ledger: readonly Movement[], day: Day) {
   const total = Object.values(byAccount).reduce((s, c) => s + c, 0);
   return { total, byAccount, byClass };
 }
+
+// An estimate's contributions: each buy at what left the cash, from its day; units added as already
+// held (an 'ajuste' with their cost), at that cost from the day they were bought (`since`).
+export const estimateContributions = (
+  lots: readonly Pick<Movement, 'day' | 'kind' | 'amountCents' | 'qtyE8' | 'priceE8' | 'fxE8'>[],
+  since?: Day,
+) =>
+  lots.map((m) =>
+    m.kind === 'ajuste' && m.priceE8 && m.qtyE8
+      ? { day: since ?? m.day, cents: valueCents(m.qtyE8, m.priceE8, m.fxE8 ?? E8) }
+      : { day: m.day, cents: -m.amountCents },
+  );
 
 // What came into net worth from outside on each day: incomes, expenses, the openings and manual
 // adjustments (money the app did not see coming). Transfers, buys and debt principal between own
@@ -168,6 +184,19 @@ export function unitFlows(h: Holdings, ledger: readonly Movement[], from: Day, t
   for (const m of ledger) {
     if (m.voided || m.kind !== 'ajuste' || !m.instrumentId || !m.qtyE8) continue;
     if (m.day <= from || m.day > to) continue;
+    // An estimate comes in at what it is worth that day: what it has grown since it was bought
+    // is not a gain of these days.
+    if (h.instruments[m.instrumentId]?.kind === 'estimado') {
+      const key = `${m.accountId}|${m.instrumentId}`;
+      out[m.accountId] =
+        (out[m.accountId] ?? 0) +
+        estimateCents(
+          estimateContributions([m], h.estimatesSince?.[key]),
+          h.estimates[key] ?? 0,
+          m.day,
+        );
+      continue;
+    }
     const quote = h.market.close(m.instrumentId, m.day);
     const c = h.market.currency(m.instrumentId);
     const fx = c === 'EUR' ? E8 : h.market.perEur(c, m.day);

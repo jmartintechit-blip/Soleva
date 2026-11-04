@@ -53,9 +53,10 @@ export const actions: Actions = {
     const values = Object.fromEntries(
       ['kind', 'name', 'amount', 'rate'].map((k) => [k, String(form.get(k) ?? '').trim()]),
     );
-    // A home, a car and a good go in through their own screens.
+    // A home, a car, a good and a product without a public price go in through their own screens.
     const kind = ALTA_KINDS.find(
-      (k) => k.kind === values.kind && !['inmueble', 'vehiculo', 'bien'].includes(k.kind),
+      (k) =>
+        k.kind === values.kind && !['inmueble', 'vehiculo', 'bien', 'estimado'].includes(k.kind),
     )?.kind;
     const cents = values.amount ? parseEuros(values.amount) : 0;
     const rateBp = values.rate ? parsePercent(values.rate) : 0;

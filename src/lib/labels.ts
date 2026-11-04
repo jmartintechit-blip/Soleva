@@ -94,6 +94,8 @@ export const ALTA_KINDS = [
     hint: 'lo que te queda',
     amount: 'Lo que debes',
   },
+  // A product inside a broker (b12/REstimado): its own screen.
+  { kind: 'estimado', label: 'Sin precio público', hint: 'private markets…', amount: 'Invertiste' },
 ] as const;
 export type AltaKind = (typeof ALTA_KINDS)[number]['kind'];
 // Where its products go in next.

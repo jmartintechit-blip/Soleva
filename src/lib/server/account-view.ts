@@ -1,5 +1,7 @@
 import { type Day, addDays } from '#lib/engine/day.ts';
 import { estimateCents } from '#lib/engine/valuation.ts';
+import { estimateContributions } from '#lib/engine/insight.ts';
+import type { MovementKind } from '#lib/engine/ledger.ts';
 import { occurrences } from '#lib/engine/schedule.ts';
 import { E8, valueCents } from '#lib/engine/units.ts';
 import type { Db } from './db/index.ts';
@@ -59,7 +61,9 @@ export async function loadAccountView(db: Db, userId: string, accountId: string,
            'fx', (select per_eur_e8::text from fx_rate where currency = i.currency and day <= $3
                   order by day desc limit 1),
            'rate', (select annual_rate_bp from estimate_config e where e.account_id = $2 and e.instrument_id = i.id),
-           'buys', case when i.kind = 'estimado' then (select json_agg(json_build_array(m.day, -m.amount_cents))
+           'since', (select since_on from estimate_config e where e.account_id = $2 and e.instrument_id = i.id),
+           'buys', case when i.kind = 'estimado' then (select json_agg(json_build_array(m.day, m.amount_cents,
+                       m.kind, m.qty_e8::text, m.price_e8::text, m.fx_e8::text))
                      from movement m where m.account_id = $2 and m.instrument_id = i.id
                        and m.qty_e8 > 0 and m.voided_at is null) end)
          order by i.name), '[]')
@@ -108,7 +112,8 @@ export async function loadAccountView(db: Db, userId: string, accountId: string,
       price: [Day, string] | null;
       fx: string | null;
       rate: number | null;
-      buys: [Day, number][] | null;
+      since: Day | null;
+      buys: [Day, number, MovementKind, string, string | null, string | null][] | null;
     }[];
     plans: {
       id: string;
@@ -131,7 +136,17 @@ export async function loadAccountView(db: Db, userId: string, accountId: string,
     let value = cost;
     if (estimate)
       value = estimateCents(
-        (p.buys ?? []).map(([day, cents]) => ({ day, cents })),
+        estimateContributions(
+          (p.buys ?? []).map(([day, amountCents, kind, qty, price, fx]) => ({
+            day,
+            amountCents,
+            kind,
+            qtyE8: BigInt(qty),
+            priceE8: price ? BigInt(price) : undefined,
+            fxE8: fx ? BigInt(fx) : undefined,
+          })),
+          p.since ?? undefined,
+        ),
         p.rate ?? 0,
         today,
       );

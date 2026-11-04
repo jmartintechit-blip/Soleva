@@ -54,7 +54,7 @@
   const current = (href: string) => (page.url.pathname.startsWith(href) ? 'page' : undefined);
   // The Alta inicial (b11/NAlta), its sheets and the create or edit forms go without the bottom bar.
   const FORMS =
-    /^\/\(app\)\/(cuentas\/(nueva|\[id\])\/(inmueble|coche|bien)|cuentas\/\[id\]\/(deuda|intereses)|reglas\/\[id\])$/;
+    /^\/\(app\)\/(cuentas\/(nueva|\[id\])\/(inmueble|coche|bien|estimado)|cuentas\/\[id\]\/(deuda|intereses)|reglas\/\[id\])$/;
   const focused = $derived(
     page.url.pathname === '/alta' ||
       page.url.searchParams.get('volver') === 'alta' ||

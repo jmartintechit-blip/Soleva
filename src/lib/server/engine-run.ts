@@ -91,6 +91,7 @@ interface Setup {
   }[];
   positions: [string, string, string, string][];
   estimates: Record<string, number>;
+  estimatesSince: Record<string, Day>;
   vehicles: {
     accountId: string;
     firstRegistration: Day;
@@ -157,6 +158,8 @@ async function readSetup(tx: Db, userId: string): Promise<Setup> {
          where p.account_id in (select id from a) and i.kind <> 'estimado'),
        'estimates', (select coalesce(json_object_agg(e.account_id || '|' || e.instrument_id, e.annual_rate_bp), '{}')
          from estimate_config e where e.account_id in (select id from a)),
+       'estimatesSince', (select coalesce(json_object_agg(e.account_id || '|' || e.instrument_id, e.since_on), '{}')
+         from estimate_config e where e.account_id in (select id from a) and e.since_on is not null),
        -- Whole too: each value moves along its curve from its own day.
        'vehicles', (select coalesce(json_agg(json_build_object('accountId', v.account_id,
            'firstRegistration', v.first_registration,
@@ -458,6 +461,7 @@ export async function loadUser(tx: Db, userId: string, setup: Setup, from: Day, 
     accounts,
     instruments,
     estimates: setup.estimates,
+    estimatesSince: setup.estimatesSince,
     vehicles: {},
     assets: {},
     properties,

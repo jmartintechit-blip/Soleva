@@ -174,6 +174,20 @@
       </div>
     {/each}
   </div>
+  <a
+    class="noprice"
+    href="/cuentas/nueva/estimado?cuenta={data.account.id}{data.fromAlta ? '&volver=alta' : ''}"
+    ><svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg
+    >¿No está? Añade un producto sin precio público (private markets, ELTIF…)</a
+  >
 
   <div class="end">
     <button class="sv-btn sv-btn--primary add" form="add" disabled={!live}
@@ -186,6 +200,17 @@
 </div>
 
 <style>
+  .noprice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--ink-muted);
+    text-decoration: none;
+  }
+  .noprice:hover {
+    color: var(--ink);
+  }
   .behind {
     position: fixed;
     inset: 0;

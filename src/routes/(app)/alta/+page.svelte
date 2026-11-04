@@ -18,12 +18,14 @@
     bien: 'M4 5h16v11H4zM9 20h6M12 16v4',
     deuda_hipoteca: 'M4 11l8-6 8 6M6 10v9h12v-9M10 19v-5h4v5',
     inmueble: 'M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-5h-6v5H5a1 1 0 0 1-1-1z',
+    estimado: 'M12 3a9 9 0 1 0 9 9M12 7v5l3 2',
   };
   // These go in through their own screen (b12), and come back here.
   const SCREEN: Record<string, string> = {
     inmueble: '/cuentas/nueva/inmueble?volver=alta',
     vehiculo: '/cuentas/nueva/coche?volver=alta',
     bien: '/cuentas/nueva/bien?volver=alta',
+    estimado: '/cuentas/nueva/estimado?volver=alta',
   };
   const eur = (cents: number) => formatEuros(cents, { withCents: true });
   const meta = (a: (typeof data.accounts)[number]) =>

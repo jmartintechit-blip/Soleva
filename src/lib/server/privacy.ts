@@ -66,7 +66,7 @@ export async function exportData(db: Db, userId: string) {
          d.withholding_es_bp
        from dividend_config d join instrument i on i.id = d.instrument_id
        where d.account_id in (${OWN}) order by d.account_id, i.name`),
-    q(`select e.account_id, i.name as instrument, e.annual_rate_bp
+    q(`select e.account_id, i.name as instrument, e.annual_rate_bp, e.since_on::text as since_on
        from estimate_config e join instrument i on i.id = e.instrument_id
        where e.account_id in (${OWN}) order by e.account_id, i.name`),
     q(`select account_id, ${eur('principal_cents')} as principal_eur, start_on::text as start_on,

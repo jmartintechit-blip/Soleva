@@ -78,7 +78,7 @@ export async function exportData(db: Db, userId: string) {
        from vehicle v left join vehicle_base b on b.id = v.vehicle_base_id
        where v.account_id in (${OWN}) order by v.account_id`),
     q(`select account_id, category, ${eur('purchase_cents')} as purchase_eur,
-         purchased_on::text as purchased_on
+         purchased_on::text as purchased_on, annual_loss_bp
        from asset where account_id in (${OWN}) order by account_id`),
     q(`select p.account_id, p.kind, m.name as municipio, p.area_m2, p.purchase_year,
          ${eur('p.purchase_cents')} as purchase_eur, p.value_method, p.value_on::text as value_on,

@@ -31,6 +31,12 @@ export const load: PageServerLoad = async (event) => {
       view.account.id,
     ]);
     if (home) redirect(303, `/cuentas/${view.account.id}/inmueble`);
+    const [good] = await db.query<{ page: string }>(
+      `select 'coche' as page from vehicle where account_id = $1
+       union all select 'bien' from asset where account_id = $1`,
+      [view.account.id],
+    );
+    if (good) redirect(303, `/cuentas/${view.account.id}/${good.page}`);
     // So do a mortgage and a loan (b12/RDeuda).
     if (['deuda_hipoteca', 'deuda_prestamo'].includes(view.account.kind))
       redirect(303, `/cuentas/${view.account.id}/deuda`);

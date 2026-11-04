@@ -18,6 +18,7 @@ import {
   unitFlows,
   valuation,
 } from '#lib/engine/insight.ts';
+import { assetIndex, vehicleIndex } from '#lib/engine/valuation.ts';
 import { type InterestTerms, isPayDay } from '#lib/engine/interest.ts';
 import { type Movement, fold, holdingKey } from '#lib/engine/ledger.ts';
 import { reprice } from '#lib/engine/reconcile.ts';
@@ -92,17 +93,11 @@ interface Setup {
   estimates: Record<string, number>;
   vehicles: {
     accountId: string;
-    baseCents: string | null;
-    table: { yearsOver: number; pctBp: number }[] | null;
     firstRegistration: Day;
-    overrideCents: string | null;
+    table: { yearsOver: number; pctBp: number }[] | null;
+    flows: [Day, string][];
   }[];
-  assets: {
-    accountId: string;
-    purchaseCents: string;
-    purchasedOn: Day;
-    curve: { years: number; pctBp: number }[] | null;
-  }[];
+  assets: { accountId: string; purchasedOn: Day; annualLossBp: number; flows: [Day, string][] }[];
   properties: {
     accountId: string;
     valueOn: Day;
@@ -162,17 +157,19 @@ async function readSetup(tx: Db, userId: string): Promise<Setup> {
          where p.account_id in (select id from a) and i.kind <> 'estimado'),
        'estimates', (select coalesce(json_object_agg(e.account_id || '|' || e.instrument_id, e.annual_rate_bp), '{}')
          from estimate_config e where e.account_id in (select id from a)),
+       -- Whole too: each value moves along its curve from its own day.
        'vehicles', (select coalesce(json_agg(json_build_object('accountId', v.account_id,
-           'baseCents', b.value_cents::text, 'firstRegistration', v.first_registration,
-           'overrideCents', v.override_cents::text,
+           'firstRegistration', v.first_registration,
            'table', (select json_agg(json_build_object('yearsOver', d.years_over, 'pctBp', d.pct_bp))
-                     from vehicle_depreciation d where d.order_year = b.order_year))), '[]')
+                     from vehicle_depreciation d where d.order_year = b.order_year),
+           'flows', (select coalesce(json_agg(json_build_array(m.day, m.amount_cents::text) order by m.day, m.seq), '[]')
+                     from movement m where m.account_id = v.account_id and m.voided_at is null))), '[]')
          from vehicle v left join vehicle_base b on b.id = v.vehicle_base_id
          where v.account_id in (select id from a)),
        'assets', (select coalesce(json_agg(json_build_object('accountId', s.account_id,
-           'purchaseCents', s.purchase_cents::text, 'purchasedOn', s.purchased_on,
-           'curve', (select json_agg(json_build_object('years', c.years, 'pctBp', c.pct_bp))
-                     from asset_curve c where c.category = s.category))), '[]')
+           'purchasedOn', s.purchased_on, 'annualLossBp', s.annual_loss_bp,
+           'flows', (select coalesce(json_agg(json_build_array(m.day, m.amount_cents::text) order by m.day, m.seq), '[]')
+                     from movement m where m.account_id = s.account_id and m.voided_at is null))), '[]')
          from asset s where s.account_id in (select id from a)),
        -- Whole, also in a compact run: each value is indexed from its own day.
        'properties', (select coalesce(json_agg(json_build_object('accountId', p.account_id,
@@ -434,22 +431,6 @@ export async function loadUser(tx: Db, userId: string, setup: Setup, from: Day, 
     perEur: (c, day) => (c === 'EUR' ? E8 : latest(rates.get(c), day)?.priceE8),
   };
 
-  const vehicles: Holdings['vehicles'] = {};
-  for (const v of setup.vehicles)
-    vehicles[v.accountId] = {
-      baseCents: num(v.baseCents),
-      table: v.table ?? [{ yearsOver: 0, pctBp: 10_000 }],
-      firstRegistration: v.firstRegistration,
-      overrideCents: num(v.overrideCents),
-    };
-  const assets: Holdings['assets'] = {};
-  for (const s of setup.assets)
-    assets[s.accountId] = {
-      purchaseCents: Number(s.purchaseCents),
-      purchasedOn: s.purchasedOn,
-      curve: s.curve ?? [],
-    };
-
   const properties: Holdings['properties'] = {};
   for (const p of setup.properties)
     properties[p.accountId] = {
@@ -460,14 +441,25 @@ export async function loadUser(tx: Db, userId: string, setup: Setup, from: Day, 
       })),
       index: p.index.map(([quarter, indexE3]) => ({ quarter, indexE3 })),
     };
+  const flowsOf = (f: [Day, string][]) => f.map(([day, cents]) => ({ day, cents: Number(cents) }));
+  for (const v of setup.vehicles)
+    properties[v.accountId] = {
+      flows: flowsOf(v.flows),
+      index: vehicleIndex(v.table ?? [], v.firstRegistration),
+    };
+  for (const g of setup.assets)
+    properties[g.accountId] = {
+      flows: flowsOf(g.flows),
+      index: assetIndex(g.annualLossBp, g.purchasedOn),
+    };
 
   const input: EngineInput = { rules, interest, dividends, debts, market };
   const holdings: Holdings = {
     accounts,
     instruments,
     estimates: setup.estimates,
-    vehicles,
-    assets,
+    vehicles: {},
+    assets: {},
     properties,
     market,
   };

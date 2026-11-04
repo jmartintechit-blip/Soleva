@@ -13,6 +13,9 @@ export default defineConfig({
   // One at a time: every test signs in as the same email, and a new code replaces the last one.
   workers: 1,
   reporter: process.env.CI ? 'github' : 'list',
+  // CI runs in the US against the database in Frankfurt: a save, the engine run and the next page's
+  // load take longer than the 5 s default there.
+  expect: { timeout: process.env.CI ? 15_000 : 5_000 },
   use: { baseURL: 'http://localhost:5173', trace: 'retain-on-failure' },
   projects: [{ name: 'desktop', use: { ...devices['Desktop Chrome'] } }],
   // vite dev, not workerd: without RESEND_API_KEY it logs the code instead of emailing it.

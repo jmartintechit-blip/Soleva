@@ -489,7 +489,8 @@
     width: 48px;
   }
   .in input[type='month'] {
-    width: 140px;
+    /* «septiembre de 2026» and its calendar icon. */
+    width: 176px;
   }
   table {
     width: 100%;

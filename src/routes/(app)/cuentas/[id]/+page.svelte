@@ -106,6 +106,9 @@
           case 'venta':
             return [m.instrument ?? 'Venta', 'Venta'];
           case 'transferencia':
+            // The money of a sale (b12, baja).
+            if (m.note === 'baja' && m.amountCents > 0)
+              return [`Venta de ${m.other ?? 'un bien'}`, 'Lo vendiste'];
             return [
               m.amountCents > 0
                 ? `Desde ${m.other ?? 'otra cuenta'}`
@@ -125,6 +128,8 @@
           case 'apertura':
             return ['Saldo inicial', ''];
           case 'amortizacion':
+            if (m.note === 'baja' && m.amountCents < 0)
+              return [`${m.other ?? 'Deuda'}: liquidada`, 'Lo que quedaba por pagar'];
             return [m.amountCents < 0 ? 'Cuota: capital' : 'Capital amortizado', ''];
           default:
             return [m.rule ?? (m.amountCents > 0 ? 'Ingreso' : 'Gasto'), ''];

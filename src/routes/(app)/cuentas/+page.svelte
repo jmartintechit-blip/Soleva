@@ -8,6 +8,12 @@
 
   const active = $derived(data.accounts.filter((a) => !a.archived));
   const archived = $derived(data.accounts.filter((a) => a.archived));
+  const short = (d: string) =>
+    new Date(`${d}T12:00:00Z`).toLocaleDateString('es-ES', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
 </script>
 
 <svelte:head>
@@ -18,7 +24,11 @@
   <a class="sv-row" href="/cuentas/{a.id}">
     <span class="sv-row__main">
       <span class="sv-row__title">{a.name}</span>
-      <span class="sv-row__meta">{KIND_LABEL[a.kind]}{a.isEstimated ? ' · estimado' : ''}</span>
+      <span class="sv-row__meta"
+        >{KIND_LABEL[a.kind]}{a.isEstimated ? ' · estimado' : ''}{a.closedOn
+          ? ` · de baja desde el ${short(a.closedOn)}`
+          : ''}</span
+      >
     </span>
     <span
       class="sv-row__value"

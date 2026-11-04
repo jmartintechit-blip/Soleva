@@ -8,6 +8,7 @@ import {
   readPropertyForm,
   updateProperty,
 } from '#lib/server/property.ts';
+import { closedOn } from '#lib/server/removal.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -17,6 +18,7 @@ export const load: PageServerLoad = async (event) => {
   const db = event.locals.db();
   const view = await propertyView(db, userId, event.params.id, today());
   if (!view) error(404, 'No encontrada');
+  if (await closedOn(db, view.id)) redirect(303, `/cuentas/${view.id}/baja`);
   return { view, debts: await debtsOf(db, userId), fromAlta: false };
 };
 

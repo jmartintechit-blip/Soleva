@@ -93,6 +93,7 @@ export async function debtView(db: Db, userId: string, id: string, today: Day) {
       `select a.id, a.name from property p join money_account a on a.id = p.account_id
        join account_access x on x.account_id = a.id and x.user_id = $1
          and x.role in ('propietario', 'editor')
+       where a.closed_on is null
        order by a.created_at`,
       [userId],
     ),

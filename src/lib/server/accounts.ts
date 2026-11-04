@@ -37,10 +37,13 @@ export interface MoneyAccount extends Account {
   name: string;
   isEstimated: boolean;
   archived: boolean;
+  // Given up (b12, baja) on that day.
+  closedOn: string | null;
 }
 
 const columns = `id, name, kind, balance_cents::float8 as "balanceCents", is_estimated as "isEstimated",
-  annual_rate_bp as "annualRateBp", archived_at is not null as archived`;
+  annual_rate_bp as "annualRateBp", archived_at is not null as archived,
+  closed_on::text as "closedOn"`;
 
 // Every query goes through account_access for userId ($1): someone else's id matches nothing.
 const can = (roles: string) =>

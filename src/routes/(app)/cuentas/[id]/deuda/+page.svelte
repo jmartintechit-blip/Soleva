@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
+  import GiveUp from '#lib/components/GiveUp.svelte';
   import { formatEuros } from '#lib/engine/money.ts';
   import type { PageProps } from './$types';
 
@@ -400,6 +401,7 @@
           <span class="subtle small">Si tu banco redondea distinto, la diferencia se cuadra.</span>
         </div>
       {/if}
+      {#if v.canEdit}<GiveUp id={v.account.id} isDebt />{/if}
     </form>
   </div>
 </div>

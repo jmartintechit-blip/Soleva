@@ -22,7 +22,8 @@ export type AccountKind =
 export type InstrumentKind = 'etf' | 'fondo' | 'accion' | 'etc' | 'cripto' | 'estimado';
 
 export interface Holdings {
-  accounts: { id: string; kind: AccountKind }[];
+  // `closedOn`: the day it stopped being the user's (sold, paid off); from then on it is not there.
+  accounts: { id: string; kind: AccountKind; closedOn?: Day }[];
   instruments: Record<string, { kind: InstrumentKind }>;
   // Products without a public price: their user's yearly rate, per holding.
   estimates: Record<string, number>;
@@ -80,7 +81,7 @@ const CLASS_OF: Record<InstrumentKind, AssetClass> = {
 // What everything is worth on `day`, by account and by kind of asset. Cash and adjustments come
 // from the ledger; units at the day's close in euros (estimates at their rate); a car and other
 // goods at their valuation (a manual adjustment adds to it), a home by INE's index. Debts are negative, so net worth is
-// the plain sum.
+// the plain sum. An account given up (`closedOn`) is left out from that day on.
 export function valuation(h: Holdings, ledger: readonly Movement[], day: Day) {
   const book = fold(ledger, day);
   const byAccount: Record<string, number> = {};
@@ -97,7 +98,11 @@ export function valuation(h: Holdings, ledger: readonly Movement[], day: Day) {
     byAccount[account] = (byAccount[account] ?? 0) + cents;
     byClass[cls] += cents;
   };
+  const gone = new Set(
+    h.accounts.filter((a) => a.closedOn !== undefined && a.closedOn <= day).map((a) => a.id),
+  );
   for (const a of h.accounts) {
+    if (gone.has(a.id)) continue;
     const cash = book.cash.get(a.id) ?? 0;
     if (DEBTS.includes(a.kind)) add(a.id, 'deudas', cash);
     else if ((a.kind === 'vehiculo' || a.kind === 'bien') && h.properties[a.id]) {
@@ -121,7 +126,7 @@ export function valuation(h: Holdings, ledger: readonly Movement[], day: Day) {
   }
   for (const [key, held] of book.holdings) {
     const [account, instrument] = key.split('|') as [string, string];
-    if (held.qtyE8 <= 0n) continue;
+    if (held.qtyE8 <= 0n || gone.has(account)) continue;
     const kind = h.instruments[instrument]!.kind;
     let cents: number;
     if (kind === 'estimado') {

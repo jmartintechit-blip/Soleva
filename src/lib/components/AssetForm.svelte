@@ -1,4 +1,5 @@
 <script lang="ts">
+  import GiveUp from './GiveUp.svelte';
   import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { formatEuros, parseEuros } from '#lib/engine/money.ts';
@@ -196,6 +197,7 @@
       <button class="sv-btn sv-btn--primary save">{view ? 'Guardar' : 'Añadir bien'}</button>
     </div>
   </form>
+  {#if view?.canEdit}<GiveUp id={view.id} />{/if}
 </div>
 
 <style>

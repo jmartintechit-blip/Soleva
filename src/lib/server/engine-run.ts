@@ -37,7 +37,7 @@ const ESTIMATE = (m: string) =>
 
 interface Setup {
   state: { through: Day; forecast: Forecast | null; touched: boolean; hand: string } | null;
-  accounts: { id: string; kind: AccountKind }[];
+  accounts: { id: string; kind: AccountKind; closedOn: Day | null }[];
   rules: (Omit<
     AutoRule,
     | 'amountCents'
@@ -113,7 +113,7 @@ interface Setup {
 async function readSetup(tx: Db, userId: string): Promise<Setup> {
   const [{ j }] = await tx.query<{ j: string }>(
     `with a as (
-       select a.id, a.kind, a.created_at from money_account a
+       select a.id, a.kind, a.closed_on, a.created_at from money_account a
        join account_access x on x.account_id = a.id where x.user_id = $1 and x.role = 'propietario')
      select json_build_object(
        'state', (select json_build_object('through', s.processed_through, 'forecast', s.forecast,
@@ -124,7 +124,7 @@ async function readSetup(tx: Db, userId: string): Promise<Setup> {
                     from movement m where m.account_id in (select id from a)
                       and (m.source not in ('regla', 'motor') or m.voided_at is not null)))
          from engine_state s where s.user_id = $1),
-       'accounts', (select coalesce(json_agg(json_build_object('id', id, 'kind', kind) order by created_at, id), '[]') from a),
+       'accounts', (select coalesce(json_agg(json_build_object('id', id, 'kind', kind, 'closedOn', closed_on) order by created_at, id), '[]') from a),
        'rules', (select coalesce(json_agg(json_build_object('id', r.id, 'kind', r.kind, 'frequency', r.frequency,
            'day', r.day, 'startOn', r.start_on, 'endOn', r.end_on, 'fromAccountId', r.from_account_id,
            'toAccountId', r.to_account_id, 'amountCents', r.amount_cents::text, 'active', r.active,
@@ -293,8 +293,12 @@ function latest(list: { day: Day; priceE8: bigint }[] | undefined, day: Day) {
 // `from`), the holdings of the cache as stand-ins on `from`, and estimates whole (their value is
 // their contributions). The same results from a few hundred rows instead of years.
 export async function loadUser(tx: Db, userId: string, setup: Setup, from: Day, compact: boolean) {
-  const accounts = setup.accounts;
+  const accounts = setup.accounts.map((a) =>
+    a.closedOn ? { id: a.id, kind: a.kind, closedOn: a.closedOn } : { id: a.id, kind: a.kind },
+  );
   const ids = accounts.map((a) => a.id);
+  // An account given up owes nothing more: what it made before is in the ledger already.
+  const closed = new Set(setup.accounts.filter((a) => a.closedOn).map((a) => a.id));
   const interest: Record<string, InterestTerms> = {};
   for (const c of setup.interest)
     interest[c.accountId] = {
@@ -318,7 +322,7 @@ export async function loadUser(tx: Db, userId: string, setup: Setup, from: Day, 
   }));
   const dividends = setup.dividends.map((d) => ({ ...d, perUnitE8: BigInt(d.perUnitE8) }));
   const debts: Record<string, DebtTerms & { payerAccountId?: string }> = {};
-  for (const d of setup.debts)
+  for (const d of setup.debts.filter((d) => !closed.has(d.accountId)))
     debts[d.accountId] = {
       principalCents: Number(d.principalCents),
       startOn: d.startOn,
@@ -472,6 +476,105 @@ export async function loadUser(tx: Db, userId: string, setup: Setup, from: Day, 
   return { ledger, provisional, standIns, input, holdings };
 }
 
+// History: each day after `from` up to `to` (`to` too, as prices move), and each account at the
+// end of every month it crossed.
+function history(
+  input: EngineInput,
+  holdings: Holdings,
+  all: readonly Movement[],
+  from: Day,
+  to: Day,
+) {
+  const days: [Day, number, number, string, string][] = [];
+  const months: [string, string, number, number][] = [];
+  for (const d of new Set([...daysAfter(from, to), to])) {
+    const v = valuation(holdings, all, d);
+    // Interest earned this period and not paid yet counts in the account's value.
+    const accrued = accruedInterest(input, all, d);
+    for (const [a, cents] of Object.entries(accrued)) {
+      if (!(a in v.byAccount)) continue;
+      v.byAccount[a]! += cents;
+      v.total += cents;
+      v.byClass.liquidez += cents;
+    }
+    const units = unitFlows(holdings, all, addDays(d, -1), d);
+    const flows =
+      outsideFlows(all, addDays(d, -1), d).reduce((s, m) => s + m.amountCents, 0) +
+      Object.values(units).reduce((s, c) => s + c, 0);
+    const own = accountFlows(all, addDays(d, -1), d);
+    for (const [a, cents] of Object.entries(units)) own[a] = (own[a] ?? 0) + cents;
+    const perAccount = Object.fromEntries(
+      Object.entries(v.byAccount).map(([a, value]) => [a, [value, own[a] ?? 0, accrued[a] ?? 0]]),
+    );
+    days.push([d, v.total, flows, JSON.stringify(perAccount), JSON.stringify(v.byClass)]);
+    if (monthOf(addDays(d, 1)) !== monthOf(d))
+      for (const [account, value] of Object.entries(v.byAccount)) {
+        const own = all.filter((m) => m.accountId === account);
+        const before = addDays(`${monthOf(d)}-01`, -1);
+        const monthFlows = outsideFlows(own, before, d);
+        months.push([
+          account,
+          `${monthOf(d)}-01`,
+          value,
+          monthFlows.reduce((s, m) => s + m.amountCents, 0) +
+            (unitFlows(holdings, own, before, d)[account] ?? 0),
+        ]);
+      }
+  }
+  return { days, months };
+}
+
+// What each of the user's accounts is worth at the end of `day`, from the whole ledger as it is in
+// `tx` (the baja asks it before the account is given up).
+export async function valuesOn(tx: Db, userId: string, day: Day) {
+  const setup = await readSetup(tx, userId);
+  const { ledger, holdings } = await loadUser(tx, userId, setup, day, false);
+  return valuation(holdings, ledger, day).byAccount;
+}
+
+// The history from the day after `from` up to where the engine is, again from the ledger as it is
+// in `tx`, without making any movement: after a baja or a deletion, those days say what is true
+// now. Never before the first day of history (that would make days that were never there).
+export async function rebuildHistory(tx: Db, userId: string, from: Day) {
+  await tx.query(`select pg_advisory_xact_lock(hashtext($1))`, [userId]);
+  const setup = await readSetup(tx, userId);
+  if (!setup.state) return;
+  const [{ first }] = await tx.query<{ first: string | null }>(
+    `select min(day)::text as first from user_day where user_id = $1`,
+    [userId],
+  );
+  const start = first && addDays(first, -1) > from ? addDays(first, -1) : from;
+  const through = setup.state.through;
+  if (start >= through) return;
+  const { ledger, input, holdings } = await loadUser(tx, userId, setup, start, false);
+  const { days, months } = history(input, holdings, ledger, start, through);
+  const col = <T, U>(xs: T[], f: (x: T) => U) => xs.map(f);
+  await tx.query(
+    `with ud as (
+       insert into user_day (user_id, day, total_cents, flows_cents, accounts, classes)
+       select $1, * from unnest($2::date[], $3::bigint[], $4::bigint[], $5::jsonb[], $6::jsonb[])
+       on conflict (user_id, day) do update set total_cents = excluded.total_cents,
+         flows_cents = excluded.flows_cents, accounts = excluded.accounts, classes = excluded.classes
+       returning 1)
+     insert into account_month (account_id, month, value_cents, flows_cents)
+     select * from unnest($7::text[], $8::date[], $9::bigint[], $10::bigint[])
+     on conflict (account_id, month) do update
+       set value_cents = excluded.value_cents, flows_cents = excluded.flows_cents`,
+    [
+      userId,
+      col(days, (x) => x[0]),
+      col(days, (x) => x[1]),
+      col(days, (x) => x[2]),
+      col(days, (x) => x[3]),
+      col(days, (x) => x[4]),
+      col(months, (x) => x[0]),
+      col(months, (x) => x[1]),
+      col(months, (x) => x[2]),
+      col(months, (x) => x[3]),
+    ],
+  );
+}
+
 // One user's run, alone (advisory lock) and all or nothing: generate what is owed up to `today`,
 // reprice the buys whose close is out, rebuild the holdings cache, keep the daily and monthly
 // history and refresh the alerts. Users not on the ledger yet (before the cut-over) are skipped.
@@ -512,44 +615,7 @@ export async function runUser(db: Db, userId: string, today: Day) {
     const all = [...ledger, ...fresh];
     const held = [...fold(all).holdings].filter(([, h]) => h.qtyE8 > 0n);
 
-    // History: each day the run went through (today too, as prices move), and each account at the
-    // end of every month it crossed.
-    const days: [Day, number, number, string, string][] = [];
-    const months: [string, string, number, number][] = [];
-    for (const d of new Set([...daysAfter(from, today), today])) {
-      const v = valuation(holdings, all, d);
-      // Interest earned this period and not paid yet counts in the account's value.
-      const accrued = accruedInterest(input, all, d);
-      for (const [a, cents] of Object.entries(accrued)) {
-        if (!(a in v.byAccount)) continue;
-        v.byAccount[a]! += cents;
-        v.total += cents;
-        v.byClass.liquidez += cents;
-      }
-      const units = unitFlows(holdings, all, addDays(d, -1), d);
-      const flows =
-        outsideFlows(all, addDays(d, -1), d).reduce((s, m) => s + m.amountCents, 0) +
-        Object.values(units).reduce((s, c) => s + c, 0);
-      const own = accountFlows(all, addDays(d, -1), d);
-      for (const [a, cents] of Object.entries(units)) own[a] = (own[a] ?? 0) + cents;
-      const perAccount = Object.fromEntries(
-        Object.entries(v.byAccount).map(([a, value]) => [a, [value, own[a] ?? 0, accrued[a] ?? 0]]),
-      );
-      days.push([d, v.total, flows, JSON.stringify(perAccount), JSON.stringify(v.byClass)]);
-      if (monthOf(addDays(d, 1)) !== monthOf(d))
-        for (const [account, value] of Object.entries(v.byAccount)) {
-          const own = all.filter((m) => m.accountId === account);
-          const before = addDays(`${monthOf(d)}-01`, -1);
-          const monthFlows = outsideFlows(own, before, d);
-          months.push([
-            account,
-            `${monthOf(d)}-01`,
-            value,
-            monthFlows.reduce((s, m) => s + m.amountCents, 0) +
-              (unitFlows(holdings, own, before, d)[account] ?? 0),
-          ]);
-        }
-    }
+    const { days, months } = history(input, holdings, all, from, today);
     const today_ = valuation(holdings, all, today);
     const { alerts: found, forecast } = alerts(
       input,

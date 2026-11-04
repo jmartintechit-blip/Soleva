@@ -22,7 +22,8 @@ export async function exportData(db: Db, userId: string) {
          s.plan_baseline::text as plan_baseline
        from "user" u left join settings s on s.user_id = u.id where u.id = $1`),
     q(`select id, name, kind, ${eur('balance_cents')} as balance_eur, is_estimated, annual_rate_bp,
-         ${iso('archived_at')} as archived_at, ${iso('created_at')} as created_at
+         ${iso('archived_at')} as archived_at, closed_on::text as closed_on,
+         ${iso('created_at')} as created_at
        from money_account where user_id = $1 order by created_at, id`),
     q(`select id, name, type, ${eur('amount_cents')} as amount_eur, frequency, day,
          ${month('start_month')} as start_month, ${month('end_month')} as end_month,

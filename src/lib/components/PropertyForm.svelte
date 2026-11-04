@@ -1,4 +1,5 @@
 <script lang="ts">
+  import GiveUp from './GiveUp.svelte';
   import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { formatEuros, parseEuros } from '#lib/engine/money.ts';
@@ -358,6 +359,7 @@
       </div>
     </div>
   </form>
+  {#if view?.canEdit}<GiveUp id={view.id} />{/if}
 </div>
 
 <style>

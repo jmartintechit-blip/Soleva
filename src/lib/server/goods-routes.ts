@@ -2,6 +2,7 @@ import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { runUser } from './engine-run.ts';
 import { createGood, goodView, readGoodForm, updateGood } from './goods.ts';
 import { today } from './plan.ts';
+import { closedOn } from './removal.ts';
 import { requireUserId } from './session.ts';
 
 // The four routes of RCoche and RBien (new and existing) share their load and save.
@@ -18,6 +19,7 @@ export async function loadGood(event: RequestEvent, kind: 'vehiculo' | 'bien') {
   }
   const view = await goodView(db, userId, id, day);
   if (!view || (kind === 'vehiculo') !== !!view.car) error(404, 'No encontrada');
+  if (await closedOn(db, id)) redirect(303, `/cuentas/${id}/baja`);
   return { view, today: day, fromAlta: false };
 }
 

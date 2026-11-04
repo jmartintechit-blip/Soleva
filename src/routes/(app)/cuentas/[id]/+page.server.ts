@@ -10,6 +10,7 @@ import {
   updateAccount,
 } from '#lib/server/accounts.ts';
 import { loadAccountView } from '#lib/server/account-view.ts';
+import { closedOn } from '#lib/server/removal.ts';
 import { today } from '#lib/server/plan.ts';
 import { fieldErrors, requireUserId } from '#lib/server/session.ts';
 import { FOLLOWS_SCENARIO } from '#lib/labels.ts';
@@ -26,6 +27,8 @@ export const load: PageServerLoad = async (event) => {
   if (ledger) {
     const view = await loadAccountView(db, userId, event.params.id, today());
     if (!view) error(404, 'No encontrada');
+    // Given up (sold, paid off): its baja page says since when.
+    if (await closedOn(db, view.account.id)) redirect(303, `/cuentas/${view.account.id}/baja`);
     // A home has its own page (b12/RInmueble).
     const [home] = await db.query(`select 1 from property where account_id = $1`, [
       view.account.id,

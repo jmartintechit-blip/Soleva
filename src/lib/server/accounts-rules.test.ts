@@ -59,7 +59,12 @@ const saving = (from: string, to: string): RuleInput => ({
 describe('accounts', () => {
   it('creates, reads back in cents, edits, archives and deletes', async () => {
     const id = await createAccount(db, 'ana', cash);
-    expect(await getAccount(db, 'ana', id)).toEqual({ id, ...cash, archived: false });
+    expect(await getAccount(db, 'ana', id)).toEqual({
+      id,
+      ...cash,
+      archived: false,
+      closedOn: null,
+    });
     await updateAccount(db, 'ana', id, { ...cash, balanceCents: MAX_CENTS });
     expect((await getAccount(db, 'ana', id))!.balanceCents).toBe(MAX_CENTS);
     expect(await setArchived(db, 'ana', id, true)).toBe(true);

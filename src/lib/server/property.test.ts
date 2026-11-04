@@ -7,6 +7,7 @@ import { runUser } from './engine-run.ts';
 import {
   createProperty,
   debtsOf,
+  openMortgage,
   placeOf,
   propertyView,
   readPropertyForm,
@@ -61,6 +62,7 @@ describe('property', () => {
       place: { code: '41039', name: 'Écija', province: 'Sevilla' },
       region: '01',
       lastYearBp: null,
+      indexQuarter: '2026-07-01',
       // × 114 / 111,393.
       m2: { area: 'municipio', eurM2Cents: 123150, quarter: '2026-04-01', todayEurM2Cents: 126032 },
     });
@@ -160,6 +162,25 @@ describe('property', () => {
     expect(
       await db.query(`select count(*)::int as n from money_account where kind = 'inmueble'`),
     ).toEqual([{ n: 1 }]);
+  });
+
+  it('opens a new mortgage after its home, owing what was said, and links it', async () => {
+    const homeId = (await createProperty(db, 'ana', '2026-11-01', home)) as string;
+    const debt = await openMortgage(db, 'ana', '2026-11-01', homeId, 'Piso', 6_240_000);
+    expect(
+      await db.query(
+        `select a.name, a.kind, m.amount_cents::int as cents,
+                (select mortgage_account_id from property where account_id = $2) as linked
+         from money_account a join movement m on m.account_id = a.id where a.id = $1`,
+        [debt, homeId],
+      ),
+    ).toEqual([
+      { name: 'Hipoteca de Piso', kind: 'deuda_hipoteca', cents: -6_240_000, linked: debt },
+    ]);
+    const [first] = await db.query<{ id: string }>(
+      `select id from money_account order by created_at, id limit 1`,
+    );
+    expect(first!.id).toBe(homeId);
   });
 
   it('shows it only to whoever can see it; a new value goes in as an adjustment of today', async () => {

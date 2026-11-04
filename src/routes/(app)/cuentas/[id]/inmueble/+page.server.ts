@@ -1,8 +1,13 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { openAccount } from '#lib/server/alta.ts';
 import { runUser } from '#lib/server/engine-run.ts';
 import { today } from '#lib/server/plan.ts';
-import { debtsOf, propertyView, readPropertyForm, updateProperty } from '#lib/server/property.ts';
+import {
+  debtsOf,
+  openMortgage,
+  propertyView,
+  readPropertyForm,
+  updateProperty,
+} from '#lib/server/property.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -34,17 +39,7 @@ export const actions: Actions = {
       });
     if (!(await propertyView(db, userId, event.params.id, day))?.canEdit)
       error(404, 'No encontrada');
-    let mortgageAccountId = read.input.mortgageAccountId;
-    if (read.mortgage?.newCents)
-      mortgageAccountId = await openAccount(db, userId, day, {
-        name: `Hipoteca de ${read.input.name}`.slice(0, 60),
-        kind: 'deuda_hipoteca',
-        cents: read.mortgage.newCents,
-      });
-    const done = await updateProperty(db, userId, event.params.id, day, {
-      ...read.input,
-      mortgageAccountId,
-    });
+    const done = await updateProperty(db, userId, event.params.id, day, read.input);
     if (done === null) error(404, 'No encontrada');
     if (done === 'sin_dato')
       return fail(400, {
@@ -53,7 +48,17 @@ export const actions: Actions = {
         candidates: [],
         info: read.info,
       });
+    const debt = read.mortgage?.newCents
+      ? await openMortgage(
+          db,
+          userId,
+          day,
+          event.params.id,
+          read.input.name,
+          read.mortgage.newCents,
+        )
+      : null;
     await runUser(db, userId, day);
-    redirect(303, `/cuentas/${event.params.id}/inmueble`);
+    redirect(303, debt ? `/cuentas/${debt}/deuda` : `/cuentas/${event.params.id}/inmueble`);
   },
 };

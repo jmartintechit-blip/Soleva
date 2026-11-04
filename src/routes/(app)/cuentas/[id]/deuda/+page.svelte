@@ -31,7 +31,11 @@
   );
   const i0 = untrack(() => data.view.input);
   let rateType = $state(sent?.tipo ?? i0?.rateType ?? 'fijo');
-  let capital = $state(sent?.capital ?? (i0 ? plain(i0.principalCents) : ''));
+  // Without terms yet, what is owed today as a start (a new mortgage from RInmueble comes so).
+  const owed0 = untrack(() => -data.view.account.cents);
+  let capital = $state(
+    sent?.capital ?? (i0 ? plain(i0.principalCents) : owed0 > 0 ? plain(owed0) : ''),
+  );
   let since = $state(sent?.desde ?? i0?.startMonth ?? untrack(() => data.today.slice(0, 7)));
   let years = $state(sent?.anos ?? (i0 ? String(i0.termMonths / 12) : '25'));
   let fixedRate = $state(sent?.tipo_fijo ?? (i0?.rateType === 'fijo' ? pct(i0.initialRateBp) : ''));
@@ -45,7 +49,7 @@
     sent?.paga ?? i0?.payerAccountId ?? untrack(() => data.view.payers[0]?.id) ?? '',
   );
   let payDay = $state(sent?.dia ?? String(i0?.payDay ?? 1));
-  let home = $state(sent?.inmueble ?? i0?.propertyId ?? '');
+  let home = $state(sent?.inmueble ?? i0?.propertyId ?? untrack(() => data.view.property) ?? '');
   let all = $state(false);
 
   const errors = $derived(form && 'errors' in form ? (form.errors as Record<string, string>) : {});
@@ -63,7 +67,11 @@
 
 <div class="page">
   <header class="top">
-    <a class="back" href="/cuentas" aria-label="Volver a Cuentas">
+    <a
+      class="back"
+      href={data.fromAlta ? '/alta' : '/cuentas'}
+      aria-label={data.fromAlta ? 'Volver al alta' : 'Volver a Cuentas'}
+    >
       <svg
         width="18"
         height="18"

@@ -100,6 +100,8 @@ export async function debtView(db: Db, userId: string, id: string, today: Day) {
   return {
     account: { id, name: a.name, kind: a.kind, cents: a.cents },
     input,
+    // The home it is linked to, even before its terms.
+    property: a.property,
     next: ahead[0] ?? null,
     ahead,
     totalInterestCents: schedule.reduce((s, p) => s + p.interestCents, 0),

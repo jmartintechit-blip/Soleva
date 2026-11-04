@@ -3,6 +3,7 @@ import { parseEuros, roundHalfAwayFromZero } from '#lib/engine/money.ts';
 import { propertyCents } from '#lib/engine/valuation.ts';
 import { PROPERTY_KINDS, PROVINCE_NAME, type PropertyKind } from '#lib/labels.ts';
 import { MAX_CENTS } from './accounts.ts';
+import { openAccount } from './alta.ts';
 import type { Db } from './db/index.ts';
 import { normalize } from './housing.ts';
 
@@ -39,6 +40,8 @@ export interface PlaceInfo {
   // How much the region's index rose over the last four quarters: shown only to say it is NOT
   // used as a forecast.
   lastYearBp: number | null;
+  // The index's latest quarter (INE, second-hand homes), for the note.
+  indexQuarter: Day | null;
   // The Ministry of Housing's average appraised value per m², of the municipality or, under
   // 25.000 inhabitants, of its province; null when neither is known.
   m2: {
@@ -62,6 +65,7 @@ export async function placeOf(db: Db, code: string): Promise<PlaceInfo | null> {
     now: number | null;
     then: number | null;
     ago: number | null;
+    iq: Day | null;
   }>(
     `with m as (
        select m.code, m.name, m.region,
@@ -78,7 +82,8 @@ export async function placeOf(db: Db, code: string): Promise<PlaceInfo | null> {
              order by quarter desc limit 1) as then,
             (select h.index_e3 from housing_index h where h.region = m.idx
                and h.quarter = (select max(quarter) from housing_index where region = m.idx)
-                               - interval '1 year') as ago
+                               - interval '1 year') as ago,
+            (select max(quarter)::text from housing_index where region = m.idx) as iq
      from m left join v on true`,
     [code],
   );
@@ -87,6 +92,7 @@ export async function placeOf(db: Db, code: string): Promise<PlaceInfo | null> {
     place: place(r),
     region: r.region,
     lastYearBp: r.now && r.ago ? Math.round((r.now / r.ago - 1) * 10_000) : null,
+    indexQuarter: r.iq,
     m2:
       r.area && r.cents && r.quarter
         ? {
@@ -415,4 +421,26 @@ export async function readPropertyForm(db: Db, form: FormData, thisYear: number)
       mortgageAccountId: mortgage?.id,
     } satisfies PropertyInput,
   };
+}
+
+// «Una nueva» hipoteca: a debt with what is owed, opened after its home (the Alta lists them in that
+// order) and linked to it; its terms come next, in RDeuda.
+export async function openMortgage(
+  db: Db,
+  userId: string,
+  day: Day,
+  propertyId: string,
+  name: string,
+  cents: number,
+): Promise<string> {
+  const id = await openAccount(db, userId, day, {
+    name: `Hipoteca de ${name}`.slice(0, 60),
+    kind: 'deuda_hipoteca',
+    cents,
+  });
+  await db.query(`update property set mortgage_account_id = $1 where account_id = $2`, [
+    id,
+    propertyId,
+  ]);
+  return id;
 }

@@ -23,3 +23,6 @@ Thumbs.db
 Claude outputs/
 worker-configuration.d.ts
 vite.config.ts.timestamp-*
+
+# Local screenshots (public repo)
+capturas-*/

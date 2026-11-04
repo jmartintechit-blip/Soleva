@@ -32,7 +32,9 @@ test('Vivienda: by m² of its municipality, with its mortgage, then a value of t
   await page.getByLabel('Superficie').fill('90');
   await expect(page.getByText(/90 m² × .*valor tasado medio de Écija/)).toBeVisible();
   await expect(
-    page.getByText(/No usamos .* del último año: eso no es una previsión/),
+    page.getByText(
+      /No usamos .* del último año \(IPV del INE, vivienda de segunda mano, Andalucía, [1-4]T \d{4}\)/,
+    ),
   ).toBeVisible();
 
   await page.getByRole('switch', { name: /¿Tiene hipoteca\?/ }).check();
@@ -40,12 +42,19 @@ test('Vivienda: by m² of its municipality, with its mortgage, then a value of t
   await expect(page.getByText('Tuyo de verdad')).toBeVisible();
   await page.getByRole('button', { name: 'Añadir vivienda' }).click();
 
-  // Back in the Alta, with the home and its mortgage.
+  // A new mortgage is a whole debt: RDeuda opens with what is owed and the home linked.
+  await expect(page).toHaveURL(/\/cuentas\/[^/]+\/deuda\?volver=alta$/);
+  await hydrated(page);
+  await expect(page.locator('input[name="capital"]')).toHaveValue('62.400');
+  await expect(page.locator('select[name="inmueble"] option:checked')).toHaveText('Piso de Écija');
+  await page.getByRole('link', { name: 'Volver al alta' }).click();
+
+  // Back in the Alta: the home, then its mortgage.
   await expect(page).toHaveURL(/\/alta$/);
-  await expect(page.getByRole('link', { name: /^Piso de Écija/ })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Hipoteca de Piso de Écija/ })).toContainText(
-    '−62.400 €',
-  );
+  const added = page.getByRole('region', { name: 'Lo que ya has añadido' }).getByRole('link');
+  await expect(added.nth(0)).toContainText('Piso de Écija');
+  await expect(added.nth(1)).toContainText('Hipoteca de Piso de Écija');
+  await expect(added.nth(1)).toContainText('−62.400 €');
   const [home] = await sql()`select p.account_id, m.amount_cents::int as cents from property p
     join movement m on m.account_id = p.account_id where p.mortgage_account_id is not null`;
   expect(home!.cents).toBe(Math.round(90 * Number(m2)));
@@ -56,7 +65,11 @@ test('Vivienda: by m² of its municipality, with its mortgage, then a value of t
   await hydrated(page);
   await page.getByText('Mi valor').click();
   await page.getByLabel('Lo que vale según tú').fill('120.000');
+  const saved = page.waitForResponse((r) => r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Guardar' }).click();
+  await saved;
+  // From the server, not the field.
+  await page.reload();
   await expect(page.locator('.hero')).toHaveText('120.000 €');
   await expect(page.getByText('Tuyo de verdad').locator('..')).toContainText('57.600 €');
 });

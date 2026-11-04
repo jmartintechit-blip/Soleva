@@ -6,6 +6,7 @@ import {
   getAutoRule,
   readRuleForm,
   ruleAccounts,
+  ruleAssets,
   saveAutoRule,
   setAutoActive,
 } from '#lib/server/auto-rules.ts';
@@ -48,10 +49,13 @@ export const load: PageServerLoad = async (event) => {
         today: 0,
       };
     }
-    const accounts = await ruleAccounts(db, userId);
+    const [accounts, assets] = await Promise.all([
+      ruleAccounts(db, userId),
+      ruleAssets(db, userId),
+    ]);
     if (!auto && !accounts.length) redirect(303, '/alta');
     return {
-      ledger: { rule: auto, accounts, today: madridToday(), plan: null },
+      ledger: { rule: auto, accounts, assets, today: madridToday(), plan: null },
       rule: null,
       accounts: [],
       month: '',
@@ -127,6 +131,10 @@ export const actions: Actions = {
     const read = readRuleForm(await event.request.formData(), day);
     if (!read.ok) return fail(400, { values: read.values, errors: read.errors });
     const db = event.locals.db();
+    // About one of the user's own homes, cars or goods, or about nothing in particular.
+    const about = read.input.assetAccountId;
+    if (about && !(await ruleAssets(db, userId)).some((a) => a.id === about))
+      return fail(400, { values: read.values, errors: { es_de: 'Elige uno de tus bienes' } });
     const id = await saveAutoRule(
       db,
       userId,

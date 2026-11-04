@@ -26,6 +26,8 @@ export interface AutoRuleRow {
   active: boolean;
   shortfall: 'no_comprar' | 'otra_cuenta';
   shortfallAccountId: string | null;
+  // The home, car or good it is about (IBI, insurance, rent): it stops when that is given up.
+  assetAccountId: string | null;
   // A plan's sum of its legs, per occurrence.
   legsCents: number;
 }
@@ -34,6 +36,7 @@ const SELECT = `select r.id, r.name, r.kind, r.frequency, r.day, r.start_on::tex
     r.end_on::text as "endOn", r.from_account_id as "fromAccountId",
     r.to_account_id as "toAccountId", r.amount_cents::float8 as "amountCents", r.active,
     r.shortfall, r.shortfall_account_id as "shortfallAccountId",
+    r.asset_account_id as "assetAccountId",
     coalesce((select sum(l.amount_cents) from auto_rule_leg l where l.rule_id = r.id), 0)::float8
       as "legsCents"
   from auto_rule r`;
@@ -62,6 +65,7 @@ export interface RuleInput {
   fromAccountId: string | null;
   toAccountId: string | null;
   amountCents: number;
+  assetAccountId?: string | null;
 }
 
 const FIELDS = [
@@ -74,6 +78,7 @@ const FIELDS = [
   'day',
   'start',
   'end',
+  'es_de',
 ] as const;
 export type RuleValues = Record<(typeof FIELDS)[number], string>;
 const isDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
@@ -126,6 +131,8 @@ export function readRuleForm(form: FormData, today: Day) {
       fromAccountId: from,
       toAccountId: to,
       amountCents: cents!,
+      // Only an income or an expense is about something; a transfer is between accounts.
+      assetAccountId: kind !== 'transferencia' && values.es_de ? values.es_de : null,
     } satisfies RuleInput,
   };
 }
@@ -150,13 +157,14 @@ export async function saveAutoRule(
     r.fromAccountId,
     r.toAccountId,
     r.amountCents,
+    r.assetAccountId ?? null,
   ];
   try {
     if (id === null) {
       const [row] = await db.query<{ id: string }>(
         `insert into auto_rule (user_id, name, kind, frequency, day, start_on, end_on,
-           from_account_id, to_account_id, amount_cents)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+           from_account_id, to_account_id, amount_cents, asset_account_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
         [userId, ...params],
       );
       return row!.id;
@@ -164,7 +172,7 @@ export async function saveAutoRule(
     const rows = await db.query<{ id: string }>(
       `update auto_rule set name = $3, kind = $4, frequency = $5, day = $6, start_on = $7,
          end_on = $8, from_account_id = $9, to_account_id = $10, amount_cents = $11,
-         updated_at = now()
+         asset_account_id = $12, updated_at = now()
        where id = $1 and user_id = $2 and kind <> 'plan' returning id`,
       [id, userId, ...params],
     );
@@ -218,3 +226,15 @@ export async function ruleAccounts(db: Db, userId: string) {
     [userId],
   );
 }
+
+// The homes, cars and goods a rule can be about (its IBI, insurance or rent), still the user's.
+export const ruleAssets = (db: Db, userId: string) =>
+  db.query<{ id: string; name: string }>(
+    `select a.id, a.name from money_account a
+     join account_access x on x.account_id = a.id and x.user_id = $1
+       and x.role in ('propietario', 'editor')
+     where a.kind in ('inmueble', 'vehiculo', 'bien') and a.closed_on is null
+       and a.archived_at is null
+     order by a.created_at, a.id`,
+    [userId],
+  );

@@ -8,6 +8,9 @@
 
   const active = $derived(data.accounts.filter((a) => !a.archived));
   const archived = $derived(data.accounts.filter((a) => a.archived));
+  // A given-up account's line: what it was sold for, or worth (owed) that day, and when.
+  const gone = (sold: number | null, worth: number, day: string) =>
+    `${sold ? `Vendido por ${formatEuros(sold)}` : `De baja · ${worth < 0 ? 'debías' : 'valía'} ${formatEuros(Math.abs(worth))}`} · ${short(day)}`;
   const short = (d: string) =>
     new Date(`${d}T12:00:00Z`).toLocaleDateString('es-ES', {
       day: 'numeric',
@@ -24,18 +27,21 @@
   <a class="sv-row" href="/cuentas/{a.id}">
     <span class="sv-row__main">
       <span class="sv-row__title">{a.name}</span>
+      <!-- Given up: not its 0 €, but what it was sold for or worth, and when. -->
       <span class="sv-row__meta"
         >{KIND_LABEL[a.kind]}{a.isEstimated ? ' · estimado' : ''}{a.closedOn
-          ? ` · de baja desde el ${short(a.closedOn)}`
+          ? ` · ${gone(a.soldCents, a.worthCents ?? 0, a.closedOn)}`
           : ''}</span
       >
     </span>
-    <span
-      class="sv-row__value"
-      class:sv-neg={(a.kind === 'deuda' ? -a.balanceCents : a.balanceCents) < 0}
-    >
-      {formatEuros(a.kind === 'deuda' ? -a.balanceCents : a.balanceCents, { withCents: true })}
-    </span>
+    {#if !a.closedOn}
+      <span
+        class="sv-row__value"
+        class:sv-neg={(a.kind === 'deuda' ? -a.balanceCents : a.balanceCents) < 0}
+      >
+        {formatEuros(a.kind === 'deuda' ? -a.balanceCents : a.balanceCents, { withCents: true })}
+      </span>
+    {/if}
   </a>
 {/snippet}
 

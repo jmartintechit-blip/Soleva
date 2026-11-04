@@ -532,6 +532,64 @@ export async function valuesOn(tx: Db, userId: string, day: Day) {
   return valuation(holdings, ledger, day).byAccount;
 }
 
+// What the engine owes these accounts and rules from the day after `from` up to where it is, and
+// nothing else: after «Deshacer la baja», the payments and rules it skipped while they were given
+// up. Only theirs, so no other rule is made for days it was never made for.
+export async function generateFor(
+  tx: Db,
+  userId: string,
+  ids: string[],
+  ruleIds: string[],
+  from: Day,
+) {
+  const setup = await readSetup(tx, userId);
+  if (!setup.state || from >= setup.state.through) return 0;
+  const { ledger, input } = await loadUser(tx, userId, setup, from, false);
+  const only = new Set(ids);
+  const mine = <T>(o: Record<string, T>) =>
+    Object.fromEntries(Object.entries(o).filter(([id]) => only.has(id)));
+  const fresh = advance(
+    {
+      ...input,
+      rules: input.rules.filter((r) => ruleIds.includes(r.id)),
+      debts: mine(input.debts),
+      interest: mine(input.interest),
+      dividends: input.dividends.filter((d) => only.has(d.accountId)),
+    },
+    ledger,
+    from,
+    setup.state.through,
+  );
+  if (!fresh.length) return 0;
+  const col = <U>(f: (m: Movement) => U) => fresh.map(f);
+  await tx.query(
+    `insert into movement (account_id, day, seq, kind, amount_cents, instrument_id, qty_e8, price_e8,
+       fx_e8, withholding_cents, transfer_id, source, rule_id, occurrence_key, provisional)
+     select * from unnest($1::text[], $2::date[], $3::int[], $4::text[], $5::bigint[], $6::text[],
+       $7::bigint[], $8::bigint[], $9::bigint[], $10::bigint[], $11::text[], $12::text[], $13::text[],
+       $14::text[], $15::boolean[])
+     on conflict (occurrence_key) where occurrence_key is not null do nothing`,
+    [
+      col((m) => m.accountId),
+      col((m) => m.day),
+      col((m) => m.seq),
+      col((m) => m.kind),
+      col((m) => m.amountCents),
+      col((m) => m.instrumentId ?? null),
+      col((m) => m.qtyE8?.toString() ?? null),
+      col((m) => m.priceE8?.toString() ?? null),
+      col((m) => m.fxE8?.toString() ?? null),
+      col((m) => m.withholdingCents ?? 0),
+      col((m) => m.transferId ?? null),
+      col((m) => m.source),
+      col((m) => m.ruleId ?? null),
+      col((m) => m.occurrenceKey ?? null),
+      col((m) => m.provisional ?? false),
+    ],
+  );
+  return fresh.length;
+}
+
 // The history from the day after `from` up to where the engine is, again from the ledger as it is
 // in `tx`, without making any movement: after a baja or a deletion, those days say what is true
 // now. Never before the first day of history (that would make days that were never there).

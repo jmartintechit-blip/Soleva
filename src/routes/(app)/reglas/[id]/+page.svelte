@@ -26,6 +26,7 @@
   <RuleForm
     rule={data.ledger.rule}
     accounts={data.ledger.accounts}
+    assets={'assets' in data.ledger ? data.ledger.assets : []}
     today={data.ledger.today}
     form={form && 'values' in form ? (form as Parameters<typeof RuleForm>[1]['form']) : null}
   />

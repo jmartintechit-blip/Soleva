@@ -57,15 +57,44 @@
   {#if v.closedOn}
     <section class="stack sv-enter">
       <p class="body">
-        Ya no {v.isDebt ? 'la' : 'lo'} tienes desde el {longDate(v.closedOn)}. Desde ese día no
-        cuenta en tu patrimonio; los días de antes no cambian.
+        {#if v.closing?.soldCents}
+          Lo vendiste por <span class="num">{eur(v.closing.soldCents)}</span> el {longDate(
+            v.closedOn,
+          )}.
+        {:else}
+          Ya no {v.isDebt ? 'la' : 'lo'} tienes desde el {longDate(v.closedOn)}{v.closing
+            ?.worthCents
+            ? ` (${v.isDebt ? 'debías' : 'valía'} ${eur(Math.abs(v.closing.worthCents))})`
+            : ''}.
+        {/if}
+        Desde ese día no cuenta en tu patrimonio; los días de antes no cambian.
       </p>
-      <a class="sv-btn sv-btn--sm danger self" href="/cuentas/{v.id}/borrar"
-        >{v.isDebt ? 'Borrar, la añadí por error' : 'Borrar, lo añadí por error'}</a
-      >
+      {#if v.closing?.main}
+        <p class="sv-muted small">
+          Se dio de baja con {v.closing.main.name}: deshacerla deshace también la de {v.closing.main
+            .name}.
+        </p>
+      {/if}
+      <div class="actions">
+        {#if v.closing?.undoable}
+          <form method="POST" action="?/deshacer" use:enhance>
+            <button class="sv-btn sv-btn--ghost sv-btn--sm self">Deshacer la baja</button>
+          </form>
+        {/if}
+        <a class="sv-btn sv-btn--sm danger self" href="/cuentas/{v.id}/borrar"
+          >{v.isDebt ? 'Borrar, la añadí por error' : 'Borrar, lo añadí por error'}</a
+        >
+      </div>
+      {#if v.closing?.undoable}
+        <span class="subtle small"
+          >Deshacer la baja {v.isDebt ? 'la' : 'lo'} vuelve a contar desde el {longDate(
+            v.closedOn,
+          )}, con lo que Soleva hubiera apuntado desde entonces.</span
+        >
+      {/if}
     </section>
   {:else}
-    <form method="POST" use:enhance class="stack sv-enter" novalidate>
+    <form method="POST" action="?/dar" use:enhance class="stack sv-enter" novalidate>
       <label class="field"
         >Desde el día<input
           type="date"
@@ -133,7 +162,7 @@
         <span class="subtle small"
           >{v.isDebt
             ? 'Sale de esa cuenta lo que debías ese día.'
-            : 'Si eliges una cuenta, lo que te dieron entra en ella ese día.'}</span
+            : 'Si eliges una cuenta, entra en ella ese día; si no, sale de tu patrimonio.'}</span
         >
       {/if}
 
@@ -370,6 +399,11 @@
     width: 18px;
     height: 18px;
     accent-color: var(--accent);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
   }
   .save {
     min-height: 52px;

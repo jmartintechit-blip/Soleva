@@ -8,10 +8,12 @@
   interface Props {
     rule: AutoRuleRow | null;
     accounts: { id: string; name: string; kind: string; cents: number }[];
+    // Homes, cars and goods: an income or expense can be about one (it stops when that goes).
+    assets: { id: string; name: string }[];
     today: string;
     form: { values?: Record<string, string>; errors?: Record<string, string> } | null;
   }
-  let { rule, accounts, today, form }: Props = $props();
+  let { rule, accounts, assets, today, form }: Props = $props();
 
   const TYPES = [
     { kind: 'transferencia', label: 'Transferencia' },
@@ -63,6 +65,7 @@
   );
   let startOn = $state(start?.start ?? r0?.startOn ?? d0);
   let endOn = $state(start?.end ?? r0?.endOn ?? '');
+  let about = $state(start?.es_de ?? r0?.assetAccountId ?? '');
 
   // The day box changes with the frequency: a weekday, a day of the month, or a date.
   let lastFreq = untrack(() => frequency);
@@ -192,6 +195,23 @@
       </div>
       {#if errors.from || errors.to}<span class="err" role="alert">{errors.from ?? errors.to}</span
         >{/if}
+      {#if kind !== 'transferencia' && assets.length}
+        <label class="row"
+          ><span class="sv-muted">Es de</span><select
+            name="es_de"
+            bind:value={about}
+            aria-invalid={!!errors.es_de}
+          >
+            <option value="">Nada en concreto</option>
+            {#each assets as a (a.id)}<option value={a.id}>{a.name}</option>{/each}
+          </select></label
+        >
+        {#if errors.es_de}<span class="err" role="alert">{errors.es_de}</span>{/if}
+        {#if about}<span class="sv-muted small hint"
+            >Si das de baja {assets.find((a) => a.id === about)?.name ?? 'ese bien'}, esta regla se
+            para.</span
+          >{/if}
+      {/if}
 
       <div class="chips" role="radiogroup" aria-label="Cada cuánto">
         {#each FREQS as q (q.f)}

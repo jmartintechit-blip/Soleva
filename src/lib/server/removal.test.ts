@@ -3,11 +3,12 @@ import { openAccount } from './alta.ts';
 import type { Db } from './db/index.ts';
 import { migrate } from './db/migrate.ts';
 import { createPgliteDb } from './db/pglite.ts';
+import { saveAutoRule } from './auto-rules.ts';
 import { readDebtForm, saveDebt } from './debts.ts';
 import { runUser } from './engine-run.ts';
 import { createGood } from './goods.ts';
 import { createProperty, openMortgage } from './property.ts';
-import { closeAccount, readCloseForm, removalView, removeAccount } from './removal.ts';
+import { closeAccount, readCloseForm, removalView, removeAccount, undoClosing } from './removal.ts';
 
 let db: Db;
 let bank: string;
@@ -103,9 +104,9 @@ describe('baja', () => {
       const read = readCloseForm(form(fields), view, '2026-10-20');
       return read.ok ? {} : read.errors;
     };
-    expect(errors({ fecha: '2026-10-21', como: 'vendi', hipoteca: 'liquidar' })).toEqual({
-      fecha: 'No puede ser después de hoy',
-    });
+    expect(
+      errors({ fecha: '2026-10-21', como: 'vendi', importe: '1', hipoteca: 'liquidar' }),
+    ).toEqual({ fecha: 'No puede ser después de hoy' });
     expect(Object.keys(errors({ fecha: '2026-09-30', como: 'x' })).sort()).toEqual([
       'como',
       'fecha',
@@ -123,7 +124,13 @@ describe('baja', () => {
     expect(
       errors({ fecha: '2026-10-10', como: 'vendi', cuenta: bank, hipoteca: 'mantener' }),
     ).toEqual({ importe: 'Pon lo que te dieron' });
-    // Sold without saying where the money went: it simply leaves.
+    // Sold, what it brought is always said, also without an account; for 0 €, it was not a sale.
+    expect(errors({ fecha: '2026-10-10', como: 'vendi', hipoteca: 'mantener' })).toEqual({
+      importe: 'Pon lo que te dieron',
+    });
+    expect(
+      errors({ fecha: '2026-10-10', como: 'vendi', importe: '0', hipoteca: 'mantener' }),
+    ).toEqual({ importe: 'Por 0 € no es una venta: elige «Ya no lo tengo»' });
     expect(
       readCloseForm(
         form({ fecha: '2026-10-10', como: 'vendi', importe: '9', hipoteca: 'mantener' }),
@@ -132,8 +139,16 @@ describe('baja', () => {
       ),
     ).toMatchObject({
       ok: true,
-      input: { on: '2026-10-10', toAccountId: undefined, amountCents: undefined },
+      input: { on: '2026-10-10', toAccountId: undefined, amountCents: 900 },
     });
+    // Given away, any figure typed before is ignored.
+    expect(
+      readCloseForm(
+        form({ fecha: '2026-10-10', como: 'ya_no', importe: '0', hipoteca: 'mantener' }),
+        view,
+        '2026-10-20',
+      ),
+    ).toMatchObject({ ok: true, input: { amountCents: undefined } });
   });
 
   it('sold from a day into an account: the days before do not change, the mortgage is paid off from the sale', async () => {
@@ -263,6 +278,227 @@ describe('baja', () => {
     );
     await runUser(db, 'ana', '2026-12-02');
     expect(await live(`debt:${loan}:2026-12-01:%`)).toEqual([{ n: 0 }]);
+  });
+
+  it('sold without an account: what it brought is that day’s gain, and leaves', async () => {
+    const was = await history();
+    await close(home, {
+      fecha: '2026-10-10',
+      como: 'vendi',
+      importe: '210.000',
+      hipoteca: 'mantener',
+    });
+    const now = await history();
+    expect(before(now, '2026-10-10')).toEqual(before(was, '2026-10-10'));
+    // The home (200.000 €) goes; 210.000 € leave as money taken out: 10.000 € made that day.
+    expect(on(now, '2026-10-10')).toMatchObject({
+      total: 1_000_000 - 6_000_000,
+      flows: -21_000_000,
+    });
+    expect(
+      on(now, '2026-10-10').total - on(now, '2026-10-09').total - on(now, '2026-10-10').flows,
+    ).toBe(1_000_000);
+    expect((await removalView(db, 'ana', home))!.closing).toMatchObject({
+      soldCents: 21_000_000,
+      worthCents: 20_000_000,
+      main: null,
+      undoable: true,
+    });
+  });
+
+  it('on a past day: what it, its debt and its rules (IBI, insurance, rent) made after it is voided, and those rules stop', async () => {
+    const laptop = (await createGood(db, 'ana', '2026-10-01', 'bien', {
+      name: 'Portátil',
+      category: 'electronica',
+      purchaseCents: 180_000,
+      purchasedOn: '2025-04-01',
+      annualLossBp: 2500,
+    })) as string;
+    const rule = (name: string, kind: 'ingreso' | 'gasto', cents: number, about: string) =>
+      saveAutoRule(db, 'ana', null, {
+        name,
+        kind,
+        frequency: 'mensual',
+        day: 5,
+        startOn: '2026-10-02',
+        endOn: null,
+        fromAccountId: kind === 'gasto' ? bank : null,
+        toAccountId: kind === 'ingreso' ? bank : null,
+        amountCents: cents,
+        assetAccountId: about,
+      });
+    const ibi = (await rule('IBI', 'gasto', 30_000, home))!;
+    const rent = (await rule('Alquiler', 'ingreso', 80_000, home))!;
+    const insurance = (await rule('Seguro del portátil', 'gasto', 2_000, laptop))!;
+    // The mortgage gets its terms, so it has payments (interest and principal) every month.
+    const read = readDebtForm(
+      form({
+        tipo: 'fijo',
+        capital: '62.000',
+        desde: '2025-10',
+        anos: '25',
+        tipo_fijo: '3',
+        paga: bank,
+        dia: '1',
+        inmueble: home,
+      }),
+      '2026-10-01',
+    );
+    if (!read.ok) throw new Error(JSON.stringify(read.errors));
+    expect(await saveDebt(db, 'ana', mortgage, '2026-10-01', read.input)).toBe(true);
+    await db.query(`update engine_state set processed_through = '2026-10-01'`);
+    await db.query(`delete from user_day`);
+    await runUser(db, 'ana', '2026-11-20');
+    const was = await history();
+    const live = (where: string, params: unknown[]) =>
+      db.query<{ day: string }>(
+        `select day::text from movement where voided_at is null and ${where} order by day`,
+        params,
+      );
+    expect((await live('rule_id = $1', [ibi])).map((m) => m.day)).toEqual([
+      '2026-10-05',
+      '2026-11-05',
+    ]);
+    expect(await live(`occurrence_key like $1`, [`debt:${mortgage}:2026-11-01:%`])).toHaveLength(3);
+
+    expect(
+      await close(home, { fecha: '2026-10-20', como: 'ya_no', hipoteca: 'liquidar' }, '2026-11-20'),
+    ).toBe(true);
+    const now = await history();
+    expect(before(now, '2026-10-20')).toEqual(before(was, '2026-10-20'));
+    // Its IBI and rent of November are gone; the laptop's insurance is not about the home.
+    expect((await live('rule_id = $1', [ibi])).map((m) => m.day)).toEqual(['2026-10-05']);
+    expect((await live('rule_id = $1', [rent])).map((m) => m.day)).toEqual(['2026-10-05']);
+    expect((await live('rule_id = $1', [insurance])).map((m) => m.day)).toEqual([
+      '2026-10-05',
+      '2026-11-05',
+    ]);
+    // The mortgage paid off with it: its November payment (interest and principal) is gone.
+    expect(await live(`occurrence_key like $1`, [`debt:${mortgage}:2026-11-01:%`])).toHaveLength(0);
+    expect(
+      await db.query(`select name, active from auto_rule where id = any($1) order by name`, [
+        [ibi, rent, insurance],
+      ]),
+    ).toEqual([
+      { name: 'Alquiler', active: false },
+      { name: 'IBI', active: false },
+      { name: 'Seguro del portátil', active: true },
+    ]);
+    // The laptop keeps losing value as before: a good's depreciation is its curve, not movements.
+    expect(on(now, '2026-11-20').accounts[laptop]).toEqual(on(was, '2026-11-20').accounts[laptop]);
+    await runUser(db, 'ana', '2026-12-06');
+    expect((await live('rule_id = $1', [ibi])).map((m) => m.day)).toEqual(['2026-10-05']);
+    expect(await live(`occurrence_key like $1`, [`debt:${mortgage}:2026-12-01:%`])).toHaveLength(0);
+  });
+
+  it('undone: it counts again from that day, with what was voided and what was skipped meanwhile', async () => {
+    const ibi = (await saveAutoRule(db, 'ana', null, {
+      name: 'IBI',
+      kind: 'gasto',
+      frequency: 'mensual',
+      day: 5,
+      startOn: '2026-10-02',
+      endOn: null,
+      fromAccountId: bank,
+      toAccountId: null,
+      amountCents: 30_000,
+      assetAccountId: home,
+    }))!;
+    const read = readDebtForm(
+      form({
+        tipo: 'fijo',
+        capital: '62.000',
+        desde: '2025-10',
+        anos: '25',
+        tipo_fijo: '3',
+        paga: bank,
+        dia: '1',
+        inmueble: home,
+      }),
+      '2026-10-01',
+    );
+    if (!read.ok) throw new Error(JSON.stringify(read.errors));
+    await saveDebt(db, 'ana', mortgage, '2026-10-01', read.input);
+    await db.query(`update engine_state set processed_through = '2026-10-01'`);
+    await db.query(`delete from user_day`);
+    await runUser(db, 'ana', '2026-11-20');
+    const was = await history();
+    const at = (rows: Day[], day: string) => on(rows, day).total;
+
+    // Given up on 20 October (on 20 November); three weeks later, on 10 December, undone.
+    await close(home, { fecha: '2026-10-20', como: 'ya_no', hipoteca: 'liquidar' }, '2026-11-20');
+    await runUser(db, 'ana', '2026-12-10');
+    const view = (await removalView(db, 'ana', mortgage))!;
+    // The mortgage went with the home: undoing it undoes the home's baja.
+    expect(view.closing).toMatchObject({
+      main: { id: home, name: 'Piso de Écija' },
+      undoable: true,
+    });
+    expect(await undoClosing(db, 'ana', mortgage)).toBe(true);
+    await runUser(db, 'ana', '2026-12-10');
+
+    const now = await history();
+    // Every day it was given up says again what it said before.
+    expect(now.filter((r) => r.day <= '2026-11-20')).toEqual(was);
+    const live = (where: string, params: unknown[]) =>
+      db.query<{ day: string; cents: number }>(
+        `select day::text, amount_cents::float8 as cents from movement
+         where voided_at is null and ${where} order by day`,
+        params,
+      );
+    // What was voided is back, and what the engine skipped while it was given up is made now.
+    expect((await live('rule_id = $1', [ibi])).map((m) => m.day)).toEqual([
+      '2026-10-05',
+      '2026-11-05',
+      '2026-12-05',
+    ]);
+    for (const month of ['2026-11-01', '2026-12-01'])
+      expect(
+        await live(
+          `occurrence_key like $1 or (replaces_id in (select id from movement
+          where occurrence_key like $1))`,
+          [`debt:${mortgage}:${month}:%`],
+        ),
+      ).toHaveLength(3);
+    expect(await live(`note = 'baja'`, [])).toEqual([]);
+    const [interest] = await live(`occurrence_key = $1`, [`debt:${mortgage}:2026-12-01:interes`]);
+    expect(at(now, '2026-12-10')).toBe(at(was, '2026-11-20') - 30_000 + interest!.cents);
+    expect(Object.keys(on(now, '2026-12-10').accounts).sort()).toEqual(
+      [bank, home, mortgage].sort(),
+    );
+    expect(
+      await db.query(
+        `select closed_on, archived_at, closing from money_account where id = any($1)`,
+        [[home, mortgage]],
+      ),
+    ).toEqual([
+      { closed_on: null, archived_at: null, closing: null },
+      { closed_on: null, archived_at: null, closing: null },
+    ]);
+    expect(await db.query(`select active from auto_rule where id = $1`, [ibi])).toEqual([
+      { active: true },
+    ]);
+    expect(
+      await db.query(`select mortgage_account_id as m from property where account_id = $1`, [home]),
+    ).toEqual([{ m: mortgage }]);
+  });
+
+  it('undone after keeping the mortgage: it is linked to the home again', async () => {
+    await close(home, { fecha: '2026-10-10', como: 'ya_no', hipoteca: 'mantener' });
+    expect(
+      await db.query(`select mortgage_account_id as m from property where account_id = $1`, [home]),
+    ).toEqual([{ m: null }]);
+    const was = await history();
+    expect(await undoClosing(db, 'ana', home)).toBe(true);
+    expect(
+      await db.query(`select mortgage_account_id as m from property where account_id = $1`, [home]),
+    ).toEqual([{ m: mortgage }]);
+    const now = await history();
+    expect(before(now, '2026-10-10')).toEqual(before(was, '2026-10-10'));
+    for (const r of now) expect(r.total).toBe(15_000_000);
+    // Only its owner, and only what was given up.
+    expect(await undoClosing(db, 'ana', home)).toBe(false);
+    expect(await undoClosing(db, 'eva', home)).toBe(false);
   });
 });
 

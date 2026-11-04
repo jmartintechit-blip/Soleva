@@ -66,11 +66,12 @@ test('Baja: a home sold into the bank pays off its mortgage; a good added by mis
 
   await expect(page).toHaveURL(/\/cuentas$/);
   const archived = page.getByRole('region', { name: 'Archivadas' });
+  // Not their 0 €: what it was sold for, what was owed, and when.
   await expect(archived.getByRole('link', { name: /^Piso de Écija/ })).toContainText(
-    'de baja desde el',
+    /Vendido por 210\.000 € · \d+ \S+ \d{4}/,
   );
   await expect(archived.getByRole('link', { name: /^Hipoteca de Piso de Écija/ })).toContainText(
-    'de baja desde el',
+    'De baja · debías 60.000 €',
   );
   // 10.000 + 210.000 − 60.000, and the laptop.
   expect(await total()).toBe(16_000_000 + 120_000);
@@ -84,7 +85,15 @@ test('Baja: a home sold into the bank pays off its mortgage; a good added by mis
   // Its own page now only says since when.
   await page.goto(`/cuentas/${home}/inmueble`);
   await expect(page).toHaveURL(new RegExp(`/cuentas/${home}/baja$`));
-  await expect(page.getByText(/Ya no lo tienes desde el/)).toBeVisible();
+  await expect(page.getByText(/Lo vendiste por 210\.000 € el/)).toBeVisible();
+
+  // «Deshacer la baja»: the home and its mortgage count again, the sale's money goes.
+  await hydrated(page);
+  await page.getByRole('button', { name: 'Deshacer la baja' }).click();
+  await expect(page).toHaveURL(new RegExp(`/cuentas/${home}/inmueble$`));
+  expect(await total()).toBe(1_000_000 + 20_000_000 - 6_000_000 + 120_000);
+  await page.goto('/cuentas');
+  await expect(page.getByRole('region', { name: 'Archivadas' })).toHaveCount(0);
 
   // «Borrar, lo añadí por error», from RBien: this page is the confirmation.
   await page.goto(`/cuentas/${laptop}/bien`);
@@ -96,5 +105,5 @@ test('Baja: a home sold into the bank pays off its mortgage; a good added by mis
   await expect(page).toHaveURL(/\/cuentas$/);
   await expect(page.getByRole('link', { name: /Portátil/ })).toHaveCount(0);
   expect(await sql()`select 1 from money_account where id = ${laptop}`).toHaveLength(0);
-  expect(await total()).toBe(16_000_000);
+  expect(await total()).toBe(15_000_000);
 });

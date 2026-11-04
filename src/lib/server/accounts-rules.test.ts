@@ -64,6 +64,8 @@ describe('accounts', () => {
       ...cash,
       archived: false,
       closedOn: null,
+      soldCents: null,
+      worthCents: null,
     });
     await updateAccount(db, 'ana', id, { ...cash, balanceCents: MAX_CENTS });
     expect((await getAccount(db, 'ana', id))!.balanceCents).toBe(MAX_CENTS);

@@ -139,6 +139,8 @@ describe('auto rules', () => {
       await db.query(`select count(*)::int as n from movement where rule_id = $1`, [id]),
     ).toEqual([{ n: 2 }]);
     expect(await saveAutoRule(db, 'ana', null, { ...rule, toAccountId: hers })).toBeNull();
+    // Nor be about someone else's home, car or good.
+    expect(await saveAutoRule(db, 'ana', null, { ...rule, assetAccountId: hers })).toBeNull();
     expect(await saveAutoRule(db, 'eva', id, rule)).toBeNull();
     expect(await saveAutoRule(db, 'ana', id, { ...rule, amountCents: 200_000 })).toBe(id);
     expect(await getAutoRule(db, 'ana', id)).toMatchObject({ amountCents: 200_000, active: true });

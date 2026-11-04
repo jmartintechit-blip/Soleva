@@ -1,12 +1,12 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { runUser } from '#lib/server/engine-run.ts';
 import { today } from '#lib/server/plan.ts';
-import { closeAccount, readCloseForm, removalView } from '#lib/server/removal.ts';
+import { closeAccount, readCloseForm, removalView, undoClosing } from '#lib/server/removal.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 // «Lo vendí o ya no lo tengo» (for a debt, «La pagué o ya no la tengo»): from a day on it is not
-// there; the days before do not change. Once given up, this page says so.
+// there; the days before do not change. Once given up, this page says so, and can undo it.
 export const load: PageServerLoad = async (event) => {
   const userId = await requireUserId(event);
   const view = await removalView(event.locals.db(), userId, event.params.id);
@@ -15,7 +15,7 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions: Actions = {
-  default: async (event) => {
+  dar: async (event) => {
     const userId = await requireUserId(event);
     const db = event.locals.db();
     const day = today();
@@ -35,5 +35,16 @@ export const actions: Actions = {
       });
     await runUser(db, userId, day);
     redirect(303, '/cuentas');
+  },
+
+  // «Deshacer la baja»: it counts again from that day; the history is rebuilt from there.
+  deshacer: async (event) => {
+    const userId = await requireUserId(event);
+    const db = event.locals.db();
+    const view = await removalView(db, userId, event.params.id);
+    if (!view?.closing?.undoable) error(404, 'No encontrada');
+    await undoClosing(db, userId, view.id);
+    await runUser(db, userId, today());
+    redirect(303, view.href);
   },
 };

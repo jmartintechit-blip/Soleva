@@ -103,15 +103,17 @@ describe('property', () => {
         value_method: 'm2',
         value_on: '2026-04-01',
         mv: 'apertura',
-        cents: 11_083_500,
+        // 90 m² × 1.231,50 € = 110.835 €, to the hundred.
+        cents: 11_080_000,
       },
     ]);
     await runUser(db, 'ana', '2026-11-02');
     const [day] = await db.query<{ total: string; classes: Record<string, number> }>(
       `select total_cents::text as total, classes from user_day where user_id = 'ana' and day = '2026-11-02'`,
     );
-    expect(day!.total).toBe('11342894');
-    expect(day!.classes.inmuebles).toBe(11_342_894);
+    // Indexed, and to the hundred again: the same figure RInmueble shows.
+    expect(day!.total).toBe('11340000');
+    expect(day!.classes.inmuebles).toBe(11_340_000);
   });
 
   it('takes the user’s own value from today; no figure means no m² value', async () => {
@@ -191,7 +193,9 @@ describe('property', () => {
       name: 'Piso de Écija',
       areaM2: 90,
       method: 'm2',
-      valueCents: 11_342_894,
+      // m² × €/m² indexed (113.393,12 €), to the hundred.
+      valueCents: 11_340_000,
+      exactCents: 11_339_312,
     });
     expect(await updateProperty(db, 'eva', id, '2026-11-02', { ...home, name: 'Mío' })).toBeNull();
     // Only the name: no adjustment.
@@ -211,17 +215,21 @@ describe('property', () => {
         [id],
       ),
     ).toEqual([
-      { kind: 'apertura', cents: 11_083_500 },
-      { kind: 'ajuste', cents: 12_000_000 - 11_342_894 },
+      { kind: 'apertura', cents: 11_080_000 },
+      // From the exact value, so it is 120.000 € to the cent.
+      { kind: 'ajuste', cents: 12_000_000 - 11_339_312 },
     ]);
     expect(await propertyView(db, 'ana', id, '2026-11-03')).toMatchObject({
       name: 'Casa',
       method: 'propio',
       valueCents: 12_000_000,
     });
-    // Back to m² with 100 m²: 100 × 1.260,32 €.
+    // Back to m² with 100 m²: 100 × 1.260,32 €, to the hundred.
     await updateProperty(db, 'ana', id, '2026-11-03', { ...home, areaM2: 100 });
-    expect((await propertyView(db, 'ana', id, '2026-11-03'))!.valueCents).toBe(12_603_200);
+    expect(await propertyView(db, 'ana', id, '2026-11-03')).toMatchObject({
+      valueCents: 12_600_000,
+      exactCents: 12_600_000,
+    });
   });
 
   it('lists the user’s debts with what is owed', async () => {

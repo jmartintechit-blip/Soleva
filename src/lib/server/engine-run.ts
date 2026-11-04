@@ -18,7 +18,7 @@ import {
   unitFlows,
   valuation,
 } from '#lib/engine/insight.ts';
-import { assetIndex, vehicleIndex } from '#lib/engine/valuation.ts';
+import { M2_STEP, assetIndex, vehicleIndex } from '#lib/engine/valuation.ts';
 import { type InterestTerms, isPayDay } from '#lib/engine/interest.ts';
 import { type Movement, fold, holdingKey } from '#lib/engine/ledger.ts';
 import { reprice } from '#lib/engine/reconcile.ts';
@@ -102,6 +102,7 @@ interface Setup {
   properties: {
     accountId: string;
     valueOn: Day;
+    method: 'm2' | 'propio';
     flows: [Day, string, Movement['kind']][];
     index: [Day, number][];
   }[];
@@ -176,7 +177,7 @@ async function readSetup(tx: Db, userId: string): Promise<Setup> {
          from asset s where s.account_id in (select id from a)),
        -- Whole, also in a compact run: each value is indexed from its own day.
        'properties', (select coalesce(json_agg(json_build_object('accountId', p.account_id,
-           'valueOn', p.value_on,
+           'valueOn', p.value_on, 'method', p.value_method,
            'flows', (select coalesce(json_agg(json_build_array(m.day, m.amount_cents::text, m.kind)
                        order by m.day, m.seq), '[]')
                      from movement m where m.account_id = p.account_id and m.voided_at is null),
@@ -443,6 +444,7 @@ export async function loadUser(tx: Db, userId: string, setup: Setup, from: Day, 
         from: kind === 'apertura' ? p.valueOn : undefined,
       })),
       index: p.index.map(([quarter, indexE3]) => ({ quarter, indexE3 })),
+      ...(p.method === 'm2' ? { step: M2_STEP } : {}),
     };
   const flowsOf = (f: [Day, string][]) => f.map(([day, cents]) => ({ day, cents: Number(cents) }));
   for (const v of setup.vehicles)

@@ -29,6 +29,14 @@ test('RCoche and RBien from the Alta: by Hacienda’s table, by its yearly loss,
   await page.locator('input[name="matriculacion"]').fill('2013-05-10');
   await page.locator('input[name="matriculacion"]').dispatchEvent('change');
   await expect(page.getByText(/^Valor de Hacienda: /)).toBeVisible();
+  // The title is the user's name for it, not Hacienda's model in capitals.
+  await page.getByLabel('Nombre').fill('El Mazda');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('El Mazda');
+  // «Usar mi valor» off still shows its edge.
+  const edge = await page
+    .getByRole('switch', { name: /Usar mi valor/ })
+    .evaluate((e) => getComputedStyle(e).boxShadow);
+  expect(edge).toContain('inset');
   await page.getByRole('button', { name: 'Añadir coche' }).click();
   await expect(page).toHaveURL(/\/alta$/);
   await expect(page.getByText('Vehículo')).toBeVisible();

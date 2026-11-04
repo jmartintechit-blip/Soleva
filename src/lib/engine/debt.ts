@@ -85,3 +85,19 @@ export function outstandingOn(t: DebtTerms, day: Day): number {
 
 export const monthsLeft = (t: DebtTerms, day: Day) =>
   Math.max(0, t.termMonths - monthsBetween(monthOf(t.firstPaymentOn), monthOf(day)));
+
+// The months a French loan of `principalCents` takes at `rateBp` with a payment of `paymentCents`,
+// to the nearest whole month (a bank's payment is the annuity of a whole term); null if the
+// payment does not cover a month's interest.
+export function monthsForPayment(
+  principalCents: number,
+  rateBp: number,
+  paymentCents: number,
+): number | null {
+  const i = rateBp / 10_000 / 12;
+  if (paymentCents <= 0) return null;
+  if (i === 0) return Math.max(1, Math.round(principalCents / paymentCents));
+  const share = (principalCents * i) / paymentCents;
+  if (share >= 1) return null;
+  return Math.max(1, Math.round(-Math.log(1 - share) / Math.log(1 + i)));
+}

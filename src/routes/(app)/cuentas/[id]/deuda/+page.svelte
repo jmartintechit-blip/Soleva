@@ -12,6 +12,9 @@
   const eur = (cents: number) => formatEuros(cents, { withCents: true });
   const pct = (bp: number) => (bp / 100).toLocaleString('es-ES', { maximumFractionDigits: 3 });
   const plain = (cents: number) => formatEuros(cents).replace(' €', '');
+  const exact = (cents: number) => formatEuros(cents, { withCents: true }).replace(' €', '');
+  const years = (months: number) =>
+    (months / 12).toLocaleString('es-ES', { maximumFractionDigits: 2, useGrouping: false });
   const short = (d: string) =>
     new Date(`${d}T00:00:00Z`).toLocaleDateString('es-ES', {
       day: 'numeric',
@@ -30,14 +33,21 @@
     form && 'values' in form ? (form.values as Record<string, string>) : null,
   );
   const i0 = untrack(() => data.view.input);
+  const left0 = untrack(() => data.view.left);
   let rateType = $state(sent?.tipo ?? i0?.rateType ?? 'fijo');
-  // Without terms yet, what is owed today as a start (a new mortgage from RInmueble comes so).
+  // Without terms yet, what is owed today as a start (a new mortgage from RInmueble comes so),
+  // in «Lo que me queda»; with them, the terms as they were given.
   const owed0 = untrack(() => -data.view.account.cents);
+  let mode = $state(sent?.modo ?? (i0 ? 'original' : 'queda'));
+  let by = $state(sent?.por ?? 'anos');
+  let pending = $state(sent?.pendiente ?? (owed0 > 0 ? exact(owed0) : ''));
+  let yearsLeft = $state(sent?.quedan ?? (left0 ? years(left0.months) : ''));
+  let payment = $state(sent?.cuota ?? (left0 ? exact(left0.paymentCents) : ''));
   let capital = $state(
     sent?.capital ?? (i0 ? plain(i0.principalCents) : owed0 > 0 ? plain(owed0) : ''),
   );
   let since = $state(sent?.desde ?? i0?.startMonth ?? untrack(() => data.today.slice(0, 7)));
-  let years = $state(sent?.anos ?? (i0 ? String(i0.termMonths / 12) : '25'));
+  let term = $state(sent?.anos ?? (i0 ? String(i0.termMonths / 12) : '25'));
   let fixedRate = $state(sent?.tipo_fijo ?? (i0?.rateType === 'fijo' ? pct(i0.initialRateBp) : ''));
   let firstRate = $state(
     sent?.tipo_inicial ?? (i0?.rateType === 'variable' ? pct(i0.initialRateBp) : ''),
@@ -51,6 +61,13 @@
   let payDay = $state(sent?.dia ?? String(i0?.payDay ?? 1));
   let home = $state(sent?.inmueble ?? i0?.propertyId ?? untrack(() => data.view.property) ?? '');
   let all = $state(false);
+
+  // What is left starts from today's rate; the original terms, from the first one.
+  function pick(m: string) {
+    mode = m;
+    const now = left0 && i0?.rateType === 'variable' ? pct(left0.rateBp) : null;
+    if (now && i0) firstRate = m === 'queda' ? now : pct(i0.initialRateBp);
+  }
 
   const errors = $derived(form && 'errors' in form ? (form.errors as Record<string, string>) : {});
   const owed = $derived(-v.account.cents);
@@ -138,47 +155,121 @@
     </div>
 
     <form method="POST" use:enhance class="main sv-enter" novalidate>
-      <div class="sv-seg seg" role="radiogroup" aria-label="Tipo de interés">
-        <label class="sv-seg__item" class:on={rateType === 'fijo'}
-          ><input type="radio" name="tipo" value="fijo" bind:group={rateType} />Tipo fijo</label
-        >
-        <label class="sv-seg__item" class:on={rateType === 'variable'}
-          ><input type="radio" name="tipo" value="variable" bind:group={rateType} />Tipo variable</label
-        >
+      <div class="segs">
+        <div class="sv-seg seg" role="radiogroup" aria-label="Qué datos tienes">
+          <label class="sv-seg__item" class:on={mode === 'queda'}
+            ><input
+              type="radio"
+              name="modo"
+              value="queda"
+              checked={mode === 'queda'}
+              onchange={() => pick('queda')}
+            />Lo que me queda</label
+          >
+          <label class="sv-seg__item" class:on={mode === 'original'}
+            ><input
+              type="radio"
+              name="modo"
+              value="original"
+              checked={mode === 'original'}
+              onchange={() => pick('original')}
+            />Datos originales</label
+          >
+        </div>
+        <div class="sv-seg seg" role="radiogroup" aria-label="Tipo de interés">
+          <label class="sv-seg__item" class:on={rateType === 'fijo'}
+            ><input type="radio" name="tipo" value="fijo" bind:group={rateType} />Tipo fijo</label
+          >
+          <label class="sv-seg__item" class:on={rateType === 'variable'}
+            ><input type="radio" name="tipo" value="variable" bind:group={rateType} />Tipo variable</label
+          >
+        </div>
       </div>
 
       <div class="rows">
-        <label class="row"
-          ><span class="sv-muted">Capital inicial</span><span class="in"
-            ><input
-              name="capital"
-              bind:value={capital}
-              inputmode="decimal"
-              aria-invalid={!!errors.capital}
-              placeholder="150.000"
-            /> €</span
-          ></label
-        >
-        <div class="row">
-          <span class="sv-muted">Desde</span><span class="in"
-            ><input
-              type="month"
-              name="desde"
-              bind:value={since}
-              aria-label="Mes de la firma"
-              aria-invalid={!!errors.desde}
-            />
-            ·
-            <input
-              class="short"
-              name="anos"
-              bind:value={years}
-              inputmode="numeric"
-              aria-label="Años"
-              aria-invalid={!!errors.anos}
-            /> años</span
+        {#if mode === 'queda'}
+          <label class="row"
+            ><span class="sv-muted">Te queda por pagar</span><span class="in"
+              ><input
+                name="pendiente"
+                aria-label="Te queda por pagar (€)"
+                bind:value={pending}
+                inputmode="decimal"
+                aria-invalid={!!errors.pendiente}
+                placeholder="62.400"
+              /> €</span
+            ></label
           >
-        </div>
+          <input type="hidden" name="por" value={by} />
+          {#if by === 'anos'}
+            <label class="row"
+              ><span class="sv-muted">Quedan</span><span class="in"
+                ><input
+                  class="short"
+                  name="quedan"
+                  aria-label="Años que quedan"
+                  bind:value={yearsLeft}
+                  inputmode="decimal"
+                  aria-invalid={!!errors.quedan}
+                  placeholder="20"
+                /> años</span
+              ></label
+            >
+          {:else}
+            <label class="row"
+              ><span class="sv-muted">Cuota</span><span class="in"
+                ><input
+                  name="cuota"
+                  aria-label="Cuota de cada mes (€)"
+                  bind:value={payment}
+                  inputmode="decimal"
+                  aria-invalid={!!errors.cuota}
+                  placeholder="480"
+                /> € al mes</span
+              ></label
+            >
+          {/if}
+          <button
+            type="button"
+            class="more by"
+            onclick={() => (by = by === 'anos' ? 'cuota' : 'anos')}
+            >{by === 'anos'
+              ? 'Sé la cuota, no los años'
+              : 'Sé los años que quedan, no la cuota'}</button
+          >
+        {:else}
+          <label class="row"
+            ><span class="sv-muted">Capital inicial</span><span class="in"
+              ><input
+                name="capital"
+                bind:value={capital}
+                inputmode="decimal"
+                aria-invalid={!!errors.capital}
+                placeholder="150.000"
+              /> €</span
+            ></label
+          >
+          <div class="row">
+            <span class="sv-muted">Desde</span><span class="in"
+              ><input
+                type="month"
+                name="desde"
+                bind:value={since}
+                aria-label="Mes de la firma"
+                aria-invalid={!!errors.desde}
+              />
+              ·
+              <input
+                class="short"
+                name="anos"
+                bind:value={term}
+                inputmode="numeric"
+                aria-label="Años"
+                aria-invalid={!!errors.anos}
+              /> años</span
+            >
+          </div>
+        {/if}
         {#if rateType === 'fijo'}
           <label class="row"
             ><span class="sv-muted">Tipo</span><span class="in"
@@ -195,8 +286,10 @@
           >
           {#if v.input?.rateType === 'fijo'}
             <div class="row">
-              <span class="sv-muted">Intereses en total</span><span class="num"
-                >{eur(v.totalInterestCents)}</span
+              <span class="sv-muted"
+                >{mode === 'queda' ? 'Intereses por pagar' : 'Intereses en total'}</span
+              ><span class="num"
+                >{eur(mode === 'queda' ? v.interestLeftCents : v.totalInterestCents)}</span
               >
             </div>
           {/if}
@@ -430,8 +523,18 @@
   select option {
     background: var(--bg);
   }
+  .segs {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
   .seg {
     display: flex;
+  }
+  .by {
+    align-self: flex-start;
+    padding: 0;
+    font-size: 13px;
   }
   .seg .sv-seg__item {
     flex: 1 1 0;

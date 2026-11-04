@@ -40,12 +40,16 @@ test('Vivienda: by m² of its municipality, with its mortgage, then a value of t
   await page.getByRole('switch', { name: /¿Tiene hipoteca\?/ }).check();
   await page.getByLabel('Lo que debes').fill('62.400');
   await expect(page.getByText('Tuyo de verdad')).toBeVisible();
+  // «~110.800 €»: what the Alta will show too.
+  const estimate = (await page.locator('.hero').textContent())!.replace('~', '');
   await page.getByRole('button', { name: 'Añadir vivienda' }).click();
 
-  // A new mortgage is a whole debt: RDeuda opens with what is owed and the home linked.
+  // A new mortgage is a whole debt: RDeuda opens in «Lo que me queda» with what is owed and
+  // the home linked.
   await expect(page).toHaveURL(/\/cuentas\/[^/]+\/deuda\?volver=alta$/);
   await hydrated(page);
-  await expect(page.locator('input[name="capital"]')).toHaveValue('62.400');
+  await expect(page.getByRole('radio', { name: 'Lo que me queda' })).toBeChecked();
+  await expect(page.getByLabel('Te queda por pagar (€)')).toHaveValue('62.400');
   await expect(page.locator('select[name="inmueble"] option:checked')).toHaveText('Piso de Écija');
   await page.getByRole('link', { name: 'Volver al alta' }).click();
 
@@ -53,11 +57,13 @@ test('Vivienda: by m² of its municipality, with its mortgage, then a value of t
   await expect(page).toHaveURL(/\/alta$/);
   const added = page.getByRole('region', { name: 'Lo que ya has añadido' }).getByRole('link');
   await expect(added.nth(0)).toContainText('Piso de Écija');
+  await expect(added.nth(0)).toContainText(estimate);
   await expect(added.nth(1)).toContainText('Hipoteca de Piso de Écija');
   await expect(added.nth(1)).toContainText('−62.400 €');
   const [home] = await sql()`select p.account_id, m.amount_cents::int as cents from property p
     join movement m on m.account_id = p.account_id where p.mortgage_account_id is not null`;
-  expect(home!.cents).toBe(Math.round(90 * Number(m2)));
+  // Stored to the hundred euros, as RInmueble shows it.
+  expect(home!.cents).toBe(Math.round((90 * Number(m2)) / 10_000) * 10_000);
 
   // Its page: «Mi valor» wins from today.
   await page.getByRole('link', { name: /^Piso de Écija/ }).click();

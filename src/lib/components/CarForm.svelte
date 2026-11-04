@@ -23,6 +23,8 @@
   let { view, today, fromAlta, form }: Props = $props();
 
   const eur = (cents: number) => formatEuros(cents);
+  // «1.498 cc» on one line.
+  const NBSP = String.fromCharCode(160);
   const v0 = untrack(() => view);
   const sent = untrack(() => form?.values ?? null);
   const car = v0?.car ?? null;
@@ -59,7 +61,8 @@
     value();
   }
 
-  const title = $derived(model ? `${model.brand} ${model.model}` : 'Tu coche');
+  // The user's name for it; Hacienda's model (in capitals) is under the search.
+  const title = $derived(name.trim() || 'Tu coche');
   const years = $derived(
     registered
       ? Math.max(
@@ -126,11 +129,12 @@
       <div class="rows">
         <div class="row">
           <span class="sv-muted">Modelo <span class="small">(tabla de Hacienda)</span></span>
-          <span
+          <span class="model"
             >{model
               ? [
+                  `${model.brand} ${model.model}`,
                   model.fuel === 'D' ? 'Diésel' : model.fuel === 'G' ? 'Gasolina' : model.fuel,
-                  model.cc ? `${model.cc.toLocaleString('es-ES')} cc` : null,
+                  model.cc ? `${model.cc.toLocaleString('es-ES')}${NBSP}cc` : null,
                   model.period,
                 ]
                   .filter(Boolean)
@@ -328,6 +332,9 @@
   .rows {
     display: flex;
     flex-direction: column;
+  }
+  .model {
+    text-align: right;
   }
   .row {
     display: flex;

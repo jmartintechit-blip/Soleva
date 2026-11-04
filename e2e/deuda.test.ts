@@ -32,6 +32,25 @@ test('RDeuda: a mortgage from the Alta gets its terms, its next payment and its 
   await expect(page).toHaveURL(new RegExp(`/cuentas/${loan}/deuda$`));
   await hydrated(page);
   await expect(page.getByText(/Pon las condiciones de tu hipoteca/)).toBeVisible();
+
+  // What is left: what the Alta said is owed, the years left and the rate.
+  await expect(page.getByRole('radio', { name: 'Lo que me queda' })).toBeChecked();
+  await expect(page.getByLabel('Te queda por pagar (€)')).toHaveValue('140.000');
+  await page.getByLabel('Años que quedan').fill('20');
+  await page.getByLabel('Tipo fijo (%)').fill('2,6');
+  await page.getByRole('button', { name: 'Guardar' }).click();
+  await expect(page.getByText('748,70 €')).toBeVisible();
+  await expect(page.locator('.hero')).toHaveText('−140.000 €');
+  await expect(page.getByText('Ver las 240 cuotas')).toBeVisible();
+
+  // Or the payment instead of the years: the same 240 payments.
+  await page.getByRole('button', { name: 'Sé la cuota, no los años' }).click();
+  await page.getByLabel('Cuota de cada mes (€)').fill('748,70');
+  await page.getByRole('button', { name: 'Guardar' }).click();
+  await expect(page.getByText('Ver las 240 cuotas')).toBeVisible();
+
+  // The original terms: the schedule is the bank's from the signing.
+  await page.getByRole('radio', { name: 'Datos originales' }).check();
   await page.getByLabel('Capital inicial').fill('150.000');
   await page.getByLabel('Mes de la firma').fill('2024-07');
   await page.getByLabel('Años').fill('25');

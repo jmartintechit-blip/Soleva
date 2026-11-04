@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { amortization, annuityCents, outstandingOn } from './debt.ts';
+import { amortization, annuityCents, monthsForPayment, outstandingOn } from './debt.ts';
 import { type InterestTerms, MICRO, dailyAccrual, isPayDay, payment } from './interest.ts';
 import {
   assetCents,
   assetIndex,
   estimateCents,
+  M2_STEP,
   propertyCents,
   vehicleCents,
   vehicleIndex,
@@ -50,6 +51,12 @@ describe('debt', () => {
     // 150.000 € at 3 % over 25 years: 711,32 € a month.
     expect(annuityCents(15_000_000, 300, 300)).toBe(71_132);
     expect(annuityCents(120_000, 0, 12)).toBe(10_000);
+    // And back: that payment is 300 months; one that only covers the interest never ends.
+    expect(monthsForPayment(15_000_000, 300, 71_132)).toBe(300);
+    expect(monthsForPayment(15_000_000, 300, 80_000)).toBe(253);
+    expect(monthsForPayment(120_000, 0, 10_000)).toBe(12);
+    expect(monthsForPayment(15_000_000, 300, 37_500)).toBeNull();
+    expect(monthsForPayment(15_000_000, 300, 0)).toBeNull();
     const plan = amortization({
       principalCents: 15_000_000,
       startOn: '2026-01-10',
@@ -156,6 +163,8 @@ describe('propertyCents', () => {
     // 2026T3 out: × 114 / 111,393.
     expect(propertyCents([opening], ipv, '2026-11-01')).toBe(11_342_894);
     expect(propertyCents([opening], ipv, '2026-10-31')).toBe(0);
+    // Valued by m²: to the hundred euros.
+    expect(propertyCents([opening], ipv, '2026-11-01', M2_STEP)).toBe(11_340_000);
   });
 
   it('a value given today waits for a later quarter; one set by hand wins from its day', () => {

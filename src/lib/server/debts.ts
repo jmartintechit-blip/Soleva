@@ -1,6 +1,6 @@
-import { type Day, dayIn } from '#lib/engine/day.ts';
+import { type Day, dayIn, monthOf } from '#lib/engine/day.ts';
 import { addMonths } from '#lib/engine/dates.ts';
-import { type DebtTerms, amortization, outstandingOn } from '#lib/engine/debt.ts';
+import { type DebtTerms, amortization, monthsForPayment, outstandingOn } from '#lib/engine/debt.ts';
 import { parseEuros, parsePercent } from '#lib/engine/money.ts';
 import { MAX_CENTS } from './accounts.ts';
 import { ruleAccounts } from './auto-rules.ts';
@@ -104,22 +104,35 @@ export async function debtView(db: Db, userId: string, id: string, today: Day) {
     property: a.property,
     next: ahead[0] ?? null,
     ahead,
+    // «Lo que me queda» from today's schedule: the payments left and the rate now.
+    left: ahead.length
+      ? { months: ahead.length, paymentCents: ahead[0]!.paymentCents, rateBp: ahead[0]!.rateBp }
+      : null,
     totalInterestCents: schedule.reduce((s, p) => s + p.interestCents, 0),
+    interestLeftCents: ahead.reduce((s, p) => s + p.interestCents, 0),
     payers,
     properties,
     canEdit: a.role === 'propietario' || a.role === 'editor',
   };
 }
 
-// RDeuda's form.
-export function readDebtForm(form: FormData) {
+// RDeuda's form, in either of its two modes: «Datos originales» (what was lent, the month it was
+// signed and its years) or «Lo que me queda» (what is owed today and the years left, or the monthly
+// payment instead of the years). The second becomes a loan of what is owed today whose first
+// payment is the next pay day after `today`: the same schedule from here on.
+export function readDebtForm(form: FormData, today: Day) {
   const one = (k: string) => String(form.get(k) ?? '').trim();
   const values = Object.fromEntries(
     [
+      'modo',
+      'por',
       'tipo',
       'capital',
       'desde',
       'anos',
+      'pendiente',
+      'quedan',
+      'cuota',
       'tipo_fijo',
       'tipo_inicial',
       'diferencial',
@@ -131,15 +144,10 @@ export function readDebtForm(form: FormData) {
     ].map((k) => [k, one(k)]),
   ) as Record<string, string>;
   const errors: Record<string, string> = {};
+  const left = values.modo === 'queda';
+  const byPayment = left && values.por === 'cuota';
   const rateType = values.tipo === 'variable' ? 'variable' : 'fijo';
-  const principal = parseEuros(values.capital);
-  const years = Number(values.anos);
   const day = Number(values.dia);
-  if (principal === null || principal <= 0 || principal > MAX_CENTS)
-    errors.capital = 'Escribe el capital que te prestaron, por ejemplo 150.000';
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(values.desde)) errors.desde = 'Elige el mes de la firma';
-  if (!Number.isInteger(years) || years < 1 || years > 50)
-    errors.anos = 'Escribe los años, de 1 a 50';
   if (!Number.isInteger(day) || day < 1 || day > 31) errors.dia = 'Elige el día de la cuota';
   if (!values.paga) errors.paga = 'Elige de qué cuenta sale';
   const pct = (k: string) => parsePercent(values[k]!);
@@ -155,17 +163,57 @@ export function readDebtForm(form: FormData) {
     if (values.suelo && bad(floor)) errors.suelo = 'Escribe el suelo, por ejemplo 0';
     if (!['6', '12'].includes(values.revision)) errors.revision = 'Elige cada cuánto se revisa';
   }
+  const rate = rateType === 'fijo' ? fixed : first;
+
+  let principal: number | null;
+  let startMonth = values.desde!;
+  let termMonths = 0;
+  if (!left) {
+    principal = parseEuros(values.capital);
+    const years = Number(values.anos);
+    if (principal === null || principal <= 0 || principal > MAX_CENTS)
+      errors.capital = 'Escribe el capital que te prestaron, por ejemplo 150.000';
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(startMonth)) errors.desde = 'Elige el mes de la firma';
+    if (!Number.isInteger(years) || years < 1 || years > 50)
+      errors.anos = 'Escribe los años, de 1 a 50';
+    termMonths = years * 12;
+  } else {
+    principal = parseEuros(values.pendiente);
+    if (principal === null || principal <= 0 || principal > MAX_CENTS)
+      errors.pendiente = 'Escribe lo que te queda por pagar, por ejemplo 62.400';
+    if (byPayment) {
+      const payment = parseEuros(values.cuota);
+      if (payment === null || payment <= 0 || payment > MAX_CENTS)
+        errors.cuota = 'Escribe la cuota de cada mes, por ejemplo 480';
+      else if (!errors.pendiente && !bad(rate)) {
+        const months = monthsForPayment(principal!, rate!, payment);
+        if (months === null) errors.cuota = 'Con esa cuota no se cubren ni los intereses del mes';
+        else if (months > 600) errors.cuota = 'Con esa cuota tardarías más de 50 años';
+        else termMonths = months;
+      }
+    } else {
+      // Years and a decimal part: «22,5» are 270 months.
+      const years = parseEuros(values.quedan);
+      termMonths = years === null ? 0 : Math.round((years * 12) / 100);
+      if (years === null || termMonths < 1 || termMonths > 600)
+        errors.quedan = 'Escribe los años que quedan, de 1 a 50';
+    }
+    // The next pay day after today; the loan "starts" the month before it.
+    const thisMonth = monthOf(today);
+    const next = dayIn(thisMonth, day) > today ? thisMonth : addMonths(thisMonth, 1);
+    startMonth = addMonths(next, -1);
+  }
   if (Object.keys(errors).length) return { ok: false as const, values, errors };
   return {
     ok: true as const,
     values,
     input: {
       principalCents: principal!,
-      startMonth: values.desde!,
+      startMonth,
       payDay: day,
-      termMonths: years * 12,
+      termMonths,
       rateType,
-      initialRateBp: rateType === 'fijo' ? fixed! : first!,
+      initialRateBp: rate!,
       spreadBp: rateType === 'variable' ? spread : null,
       reviewMonths: rateType === 'variable' ? (Number(values.revision) as 6 | 12) : null,
       floorBp: rateType === 'variable' ? floor : null,

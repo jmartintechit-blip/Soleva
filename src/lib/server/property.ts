@@ -1,6 +1,6 @@
 import type { Day } from '#lib/engine/day.ts';
 import { parseEuros, roundHalfAwayFromZero } from '#lib/engine/money.ts';
-import { propertyCents } from '#lib/engine/valuation.ts';
+import { M2_STEP, propertyCents } from '#lib/engine/valuation.ts';
 import { PROPERTY_KINDS, PROVINCE_NAME, type PropertyKind } from '#lib/labels.ts';
 import { MAX_CENTS } from './accounts.ts';
 import { openAccount } from './alta.ts';
@@ -137,7 +137,7 @@ export async function createProperty(
   if (p.method === 'm2') {
     const m2 = (await placeOf(db, p.municipalityCode))?.m2;
     if (!m2) return 'sin_dato';
-    cents = roundHalfAwayFromZero(p.areaM2 * m2.eurM2Cents);
+    cents = toStep(p.areaM2 * m2.eurM2Cents);
     valueOn = m2.quarter;
   }
   try {
@@ -203,11 +203,18 @@ export interface PropertyView {
   growthBp: number;
   mortgageAccountId: string | null;
   valueCents: number;
+  // Before rounding by m²: what a value set by hand adjusts from.
+  exactCents: number;
   info: PlaceInfo;
   canEdit: boolean;
 }
 
-// What it is worth on `day`, from its own movements and its region's index (as the engine).
+// An estimate by m² is stored and shown to the hundred euros, so RInmueble, the Alta, Cuentas
+// and Inicio say the same figure.
+const toStep = (cents: number) => roundHalfAwayFromZero(cents / M2_STEP) * M2_STEP;
+
+// What it is worth on `day`, from its own movements and its region's index (as the engine),
+// before rounding.
 async function valueOf(db: Db, id: string, valueOn: Day, region: string, day: Day) {
   const flows = await db.query<{ day: Day; cents: number; kind: string }>(
     `select day::text as day, amount_cents::float8 as cents, kind from movement
@@ -258,6 +265,7 @@ export async function propertyView(
   );
   if (!r) return null;
   const info = (await placeOf(db, r.code))!;
+  const exactCents = await valueOf(db, id, r.valueOn, info.region, day);
   return {
     id,
     name: r.name,
@@ -268,7 +276,8 @@ export async function propertyView(
     method: r.method,
     growthBp: r.growth,
     mortgageAccountId: r.mortgage,
-    valueCents: await valueOf(db, id, r.valueOn, info.region, day),
+    valueCents: r.method === 'm2' ? toStep(exactCents) : exactCents,
+    exactCents,
     info,
     canEdit: r.role === 'propietario' || r.role === 'editor',
   };
@@ -297,7 +306,7 @@ export async function updateProperty(
   ) {
     const m2 = (await placeOf(db, p.municipalityCode))?.m2;
     if (!m2) return 'sin_dato';
-    target = roundHalfAwayFromZero(p.areaM2 * m2.todayEurM2Cents);
+    target = toStep(p.areaM2 * m2.todayEurM2Cents);
   }
   try {
     return await db.transaction(async (tx) => {
@@ -318,11 +327,11 @@ export async function updateProperty(
           p.mortgageAccountId ?? null,
         ],
       );
-      if (target !== null && target !== before.valueCents)
+      if (target !== null && target !== before.exactCents)
         await tx.query(
           `insert into movement (account_id, day, kind, amount_cents, source)
            values ($1, $2, 'ajuste', $3, 'manual')`,
-          [id, day, target - before.valueCents],
+          [id, day, target - before.exactCents],
         );
       return true as const;
     });

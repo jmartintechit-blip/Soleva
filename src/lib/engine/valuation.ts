@@ -70,14 +70,19 @@ export function estimateCents(
   );
 }
 
+// An estimate by m² goes to the hundred euros, wherever it is shown.
+export const M2_STEP = 10_000;
+
 // A home: each value put into it (the opening, a value set by hand later) follows INE's housing
 // price index of its region from the quarter that value refers to (`from`, else its day) to the
 // latest quarter published up to `on`. The ratios chain, so a value set by hand is exactly that
 // value on its day and moves with the index from there. Without the index, values stay as given.
+// `step` rounds the result (M2_STEP for a home valued by m²).
 export function propertyCents(
   flows: { day: Day; cents: number; from?: Day }[],
   index: { quarter: Day; indexE3: number }[],
   on: Day,
+  step = 1,
 ): number {
   const at = (d: Day) => index.findLast((x) => x.quarter <= d)?.indexE3;
   const now = at(on);
@@ -87,7 +92,7 @@ export function propertyCents(
     const base = at(f.from ?? f.day);
     sum += now && base ? (f.cents * now) / base : f.cents;
   }
-  return roundHalfAwayFromZero(sum);
+  return roundHalfAwayFromZero(sum / step) * step;
 }
 
 // A car's curve for propertyCents: Hacienda's Anexo IV percentage from each anniversary of its

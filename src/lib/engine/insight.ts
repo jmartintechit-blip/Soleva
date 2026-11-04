@@ -48,6 +48,8 @@ export interface Holdings {
     {
       flows: { day: Day; cents: number; from?: Day }[];
       index: { quarter: Day; indexE3: number }[];
+      // A home valued by m²: its value to the hundred euros.
+      step?: number;
     }
   >;
   market: Market;
@@ -114,7 +116,7 @@ export function valuation(h: Holdings, ledger: readonly Movement[], day: Day) {
       add(a.id, 'bienes', base + cash);
     } else if (a.kind === 'inmueble') {
       const p = h.properties[a.id];
-      add(a.id, 'inmuebles', p ? propertyCents(p.flows, p.index, day) : cash);
+      add(a.id, 'inmuebles', p ? propertyCents(p.flows, p.index, day, p.step) : cash);
     } else add(a.id, 'liquidez', cash);
   }
   for (const [key, held] of book.holdings) {

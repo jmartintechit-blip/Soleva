@@ -54,7 +54,7 @@ const fixed = () => ({
 
 describe('debts', () => {
   it('reads fixed and variable terms, and what is missing', () => {
-    expect(readDebtForm(form(fixed()))).toMatchObject({
+    expect(readDebtForm(form(fixed()), '2026-10-31')).toMatchObject({
       ok: true,
       input: {
         principalCents: 15_000_000,
@@ -75,6 +75,7 @@ describe('debts', () => {
           revision: '12',
           suelo: '0',
         }),
+        '2026-10-31',
       ),
     ).toMatchObject({
       ok: true,
@@ -88,6 +89,7 @@ describe('debts', () => {
     });
     const bad = readDebtForm(
       form({ tipo: 'variable', capital: '0', desde: '2024-13', anos: '60', dia: '0' }),
+      '2026-10-31',
     );
     expect(Object.keys(bad.ok ? {} : bad.errors).sort()).toEqual(
       ['anos', 'capital', 'desde', 'dia', 'diferencial', 'paga', 'revision', 'tipo_inicial'].sort(),
@@ -95,7 +97,7 @@ describe('debts', () => {
   });
 
   it('owes what the schedule says today, then each payment splits into interest and principal', async () => {
-    const read = readDebtForm(form(fixed()));
+    const read = readDebtForm(form(fixed()), '2026-10-31');
     if (!read.ok) throw new Error('form');
     expect(await saveDebt(db, 'ana', loan, '2026-10-31', read.input)).toBe(true);
     const v = (await debtView(db, 'ana', loan, '2026-10-31'))!;
@@ -133,6 +135,98 @@ describe('debts', () => {
     ).toEqual([{ n: 1 }]);
   });
 
+  it('reads «Lo que me queda»: what is owed today and the years left, or the payment', () => {
+    const left = (f: Record<string, string>, today = '2026-10-31') =>
+      readDebtForm(
+        form({ modo: 'queda', tipo: 'fijo', tipo_fijo: '2,6', paga: bank, ...f }),
+        today,
+      );
+    // Paid on the 1st: on 31 October the next payment is 1 November, so it "starts" in October.
+    expect(left({ pendiente: '62.400', quedan: '22,5', dia: '1' })).toMatchObject({
+      ok: true,
+      input: { principalCents: 6_240_000, startMonth: '2026-10', payDay: 1, termMonths: 270 },
+    });
+    // Paid on the 15th: on 4 November the next one is 15 November.
+    expect(left({ pendiente: '62.400', quedan: '20', dia: '15' }, '2026-11-04')).toMatchObject({
+      ok: true,
+      input: { startMonth: '2026-10', termMonths: 240 },
+    });
+    // The payment instead of the years: 150.000 € at 3 % paid at 711,32 € are 300 months.
+    expect(
+      left({ por: 'cuota', pendiente: '150.000', cuota: '711,32', tipo_fijo: '3', dia: '1' }),
+    ).toMatchObject({ ok: true, input: { termMonths: 300 } });
+    const errs = (r: ReturnType<typeof readDebtForm>) => Object.keys(r.ok ? {} : r.errors).sort();
+    expect(errs(left({ pendiente: '0', quedan: '60', dia: '1' }))).toEqual(['pendiente', 'quedan']);
+    expect(errs(left({ por: 'cuota', pendiente: '150.000', cuota: '300', dia: '1' }))).toEqual([
+      'cuota',
+    ]);
+    // Original mode's fields are not asked for.
+    expect(errs(left({ pendiente: '1.000', quedan: '1', dia: '1' }))).toEqual([]);
+  });
+
+  it('gives the same schedule from today in both modes', async () => {
+    const read = readDebtForm(form(fixed()), '2026-10-31');
+    if (!read.ok) throw new Error('form');
+    await saveDebt(db, 'ana', loan, '2026-10-31', read.input);
+    const original = (await debtView(db, 'ana', loan, '2026-10-31'))!;
+    const owed = -original.account.cents;
+    expect(original.left).toEqual({ months: 273, paymentCents: 68_050, rateBp: 260 });
+    const euros = (c: number) => (c / 100).toFixed(2).replace('.', ',');
+    for (const f of <Record<string, string>[]>[
+      { quedan: '22,75' },
+      { por: 'cuota', cuota: euros(original.next!.paymentCents) },
+    ]) {
+      const again = readDebtForm(
+        form({ ...fixed(), modo: 'queda', pendiente: euros(owed), ...f }),
+        '2026-10-31',
+      );
+      if (!again.ok) throw new Error(JSON.stringify(again.errors));
+      expect(again.input).toMatchObject({ principalCents: owed, termMonths: 273 });
+      expect(await saveDebt(db, 'ana', loan, '2026-10-31', again.input)).toBe(true);
+      const v = (await debtView(db, 'ana', loan, '2026-10-31'))!;
+      // What is owed does not move: no new adjustment.
+      expect(v.account.cents).toBe(-owed);
+      expect(v.next).toMatchObject({ day: '2026-11-01' });
+      expect(v.ahead).toHaveLength(273);
+      // The payment of what is left is the bank's, give or take a cent of rounding.
+      expect(Math.abs(v.next!.paymentCents - 68_050)).toBeLessThanOrEqual(1);
+      expect(v.ahead.at(-1)!.outstandingCents).toBe(0);
+      // Its interest is only what is left to pay from today.
+      expect(v.totalInterestCents).toBeLessThan(original.totalInterestCents);
+    }
+    expect(
+      await db.query(
+        `select count(*)::int as n from movement where account_id = $1 and kind = 'ajuste'`,
+        [loan],
+      ),
+    ).toEqual([{ n: 1 }]);
+  });
+
+  it('starts «Lo que me queda» from what is owed, with no terms yet', async () => {
+    const read = readDebtForm(
+      form({
+        modo: 'queda',
+        pendiente: '140.000',
+        quedan: '20',
+        tipo_fijo: '2,6',
+        paga: bank,
+        dia: '5',
+      }),
+      '2026-10-31',
+    );
+    if (!read.ok) throw new Error('form');
+    expect(await saveDebt(db, 'ana', loan, '2026-10-31', read.input)).toBe(true);
+    const v = (await debtView(db, 'ana', loan, '2026-10-31'))!;
+    // The Alta already said 140.000 €: the terms agree, so nothing to square.
+    expect(v.account.cents).toBe(-14_000_000);
+    // 140.000 € at 2,6 % over 20 years: 748,70 € on the 5th.
+    expect(v.next).toMatchObject({ day: '2026-11-05', paymentCents: 74_870 });
+    expect(v.ahead).toHaveLength(240);
+    expect(
+      await db.query(`select kind from movement where account_id = $1 order by created_at`, [loan]),
+    ).toEqual([{ kind: 'apertura' }]);
+  });
+
   it('links its home, and refuses what is not the user’s', async () => {
     await db.query(`insert into municipality values ('41039', 'Écija', 'ecija', '01')`);
     const home = (await createProperty(db, 'ana', '2026-10-31', {
@@ -144,7 +238,7 @@ describe('debts', () => {
       ownCents: 20_000_000,
       growthBp: 200,
     })) as string;
-    const read = readDebtForm(form({ ...fixed(), inmueble: home }));
+    const read = readDebtForm(form({ ...fixed(), inmueble: home }), '2026-10-31');
     if (!read.ok) throw new Error('form');
     expect(await saveDebt(db, 'ana', loan, '2026-10-31', read.input)).toBe(true);
     expect(

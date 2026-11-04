@@ -16,7 +16,7 @@ export const load: PageServerLoad = async (event) => {
 export const actions: Actions = {
   default: async (event) => {
     const userId = await requireUserId(event);
-    const read = readDebtForm(await event.request.formData());
+    const read = readDebtForm(await event.request.formData(), today());
     if (!read.ok) return fail(400, { values: read.values, errors: read.errors });
     const db = event.locals.db();
     const day = today();

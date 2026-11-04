@@ -6,7 +6,7 @@
 </script>
 
 <svelte:head>
-  <title>Coche · Soleva</title>
+  <title>{data.view?.name ?? 'Coche'} · Soleva</title>
 </svelte:head>
 
 <CarForm view={data.view} today={data.today} fromAlta={data.fromAlta} {form} />

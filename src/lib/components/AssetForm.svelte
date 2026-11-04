@@ -171,13 +171,17 @@
           <circle cx={curve.dot[0]} cy={curve.dot[1]} r="4" fill="var(--accent)" />
         </svg>
       {/if}
-      <details class="hand" open={byHand}>
-        <summary class="sv-muted" onclick={() => (byHand = !byHand)}
-          >Poner valor a mano (lo tasaste o lo vendes)</summary
+      <div class="hand">
+        <button
+          type="button"
+          class="toggle sv-muted"
+          aria-expanded={byHand}
+          aria-controls="asset-own"
+          onclick={() => (byHand = !byHand)}>Poner valor a mano (lo tasaste o lo vendes)</button
         >
         {#if byHand}
           <input type="hidden" name="mio" value="on" />
-          <label class="own"
+          <label class="own" id="asset-own"
             ><span class="sv-muted">Vale hoy</span><input
               name="valor"
               bind:value={mine}
@@ -187,7 +191,7 @@
             /><span class="sv-muted">€</span></label
           >
         {/if}
-      </details>
+      </div>
       {#if errors.valor}<span class="err" role="alert">{errors.valor}</span>{/if}
       <button class="sv-btn sv-btn--primary save">{view ? 'Guardar' : 'Añadir bien'}</button>
     </div>
@@ -345,12 +349,26 @@
     width: 100%;
     height: auto;
   }
-  .hand summary {
+  .hand {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .toggle {
+    font: inherit;
     font-size: 13px;
+    text-align: left;
+    background: none;
+    border: 0;
+    padding: 0;
     cursor: pointer;
     min-height: 32px;
-    display: flex;
-    align-items: center;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   .own {
     display: flex;

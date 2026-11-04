@@ -95,11 +95,16 @@
         : `valor tasado medio de la provincia de ${info.place.province}; ${info.place.name} tiene menos de 25.000 habitantes`;
     return `${areaN ?? '…'} m² × ${euros(info.m2.todayEurM2Cents)}/m² (${where}, Ministerio de Vivienda). ${index}`;
   });
+  // «2T 2026»: the index's quarter, and which series it is.
+  const quarterName = (q: string) => `${(Number(q.slice(5, 7)) + 2) / 3}T ${q.slice(0, 4)}`;
   const lastYear = $derived(
-    info?.lastYearBp != null
-      ? `No usamos el ${info.lastYearBp > 0 ? '+' : ''}${(info.lastYearBp / 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} % del último año: eso no es una previsión.`
+    info?.lastYearBp != null && info.indexQuarter
+      ? `No usamos el ${info.lastYearBp > 0 ? '+' : ''}${(info.lastYearBp / 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} % del último año (IPV del INE, vivienda de segunda mano, ${regionName}, ${quarterName(info.indexQuarter)}): eso no es una previsión.`
       : 'No usamos la subida del último año: eso no es una previsión.',
   );
+  // An estimate by m² goes to the hundred; the exact value only with «Mi valor».
+  const shown = (cents: number) => (method === 'm2' ? Math.round(cents / 10_000) * 10_000 : cents);
+  const approx = $derived(method === 'm2' ? '~' : '');
   // The mortgage picked, or the new one: its name and what is owed (negative).
   const debt = $derived.by(() => {
     if (!mortgage) return null;
@@ -250,7 +255,7 @@
     <div class="side sv-enter">
       <section class="worth" aria-live="polite">
         <span class="sv-muted">Hoy vale</span>
-        <span class="hero num">{value ? `${method === 'm2' ? '~' : ''}${euros(value)}` : '—'}</span>
+        <span class="hero num">{value ? `${approx}${euros(shown(value))}` : '—'}</span>
         <span class="sv-muted small">{note}</span>
       </section>
 
@@ -321,6 +326,9 @@
             >
             {#if errors.hipoteca_debe}<span class="err" role="alert">{errors.hipoteca_debe}</span
               >{/if}
+            <span class="sv-muted small"
+              >Al guardar, pones su cuota, tipo y plazo: ya irá enlazada a este inmueble.</span
+            >
           {/if}
           {#if debt !== null}
             <div class="line">
@@ -332,7 +340,7 @@
             {#if value}
               <div class="line big">
                 <span>Tuyo de verdad</span><span class="num accent"
-                  >{euros(value + debt.cents)}</span
+                  >{approx}{euros(shown(value + debt.cents))}</span
                 >
               </div>
             {/if}

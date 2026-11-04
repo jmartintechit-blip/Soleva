@@ -10,7 +10,7 @@ export const load: PageServerLoad = async (event) => {
   const userId = await requireUserId(event);
   const view = await debtView(event.locals.db(), userId, event.params.id, today());
   if (!view) error(404, 'No encontrada');
-  return { view, today: today() };
+  return { view, today: today(), fromAlta: event.url.searchParams.get('volver') === 'alta' };
 };
 
 export const actions: Actions = {
@@ -23,6 +23,11 @@ export const actions: Actions = {
     if (!(await saveDebt(db, userId, event.params.id, day, read.input)))
       error(404, 'No encontrada');
     await runUser(db, userId, day);
-    redirect(303, `/cuentas/${event.params.id}/deuda`);
+    redirect(
+      303,
+      event.url.searchParams.get('volver') === 'alta'
+        ? '/alta'
+        : `/cuentas/${event.params.id}/deuda`,
+    );
   },
 };

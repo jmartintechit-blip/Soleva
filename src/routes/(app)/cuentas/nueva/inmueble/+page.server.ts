@@ -1,8 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { openAccount } from '#lib/server/alta.ts';
 import { runUser } from '#lib/server/engine-run.ts';
 import { today } from '#lib/server/plan.ts';
-import { createProperty, debtsOf, readPropertyForm } from '#lib/server/property.ts';
+import { createProperty, debtsOf, openMortgage, readPropertyForm } from '#lib/server/property.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -36,15 +35,7 @@ export const actions: Actions = {
         candidates: read.candidates,
         info: read.info,
       });
-    // A new mortgage opens as a debt of its own, named after the home.
-    let mortgageAccountId = read.input.mortgageAccountId;
-    if (read.mortgage?.newCents)
-      mortgageAccountId = await openAccount(db, userId, day, {
-        name: `Hipoteca de ${read.input.name}`.slice(0, 60),
-        kind: 'deuda_hipoteca',
-        cents: read.mortgage.newCents,
-      });
-    const id = await createProperty(db, userId, day, { ...read.input, mortgageAccountId });
+    const id = await createProperty(db, userId, day, read.input);
     if (id === null) error(404, 'No encontrada');
     if (id === 'sin_dato')
       return fail(400, {
@@ -53,7 +44,13 @@ export const actions: Actions = {
         candidates: [],
         info: read.info,
       });
+    const alta = event.url.searchParams.get('volver') === 'alta';
+    // A new mortgage: the home first, then the debt and its terms in RDeuda.
+    const debt = read.mortgage?.newCents
+      ? await openMortgage(db, userId, day, id, read.input.name, read.mortgage.newCents)
+      : null;
     await runUser(db, userId, day);
-    redirect(303, event.url.searchParams.get('volver') === 'alta' ? '/alta' : `/cuentas/${id}`);
+    if (debt) redirect(303, `/cuentas/${debt}/deuda${alta ? '?volver=alta' : ''}`);
+    redirect(303, alta ? '/alta' : `/cuentas/${id}`);
   },
 };

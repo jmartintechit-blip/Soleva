@@ -48,8 +48,15 @@ test('RCoche and RBien from the Alta: by Hacienda’s table, by its yearly loss,
   await expect(page).toHaveURL(/\/bien$/);
   await hydrated(page);
   await expect(page.locator('.hero')).toHaveText('1.800 €');
-  await page.getByText('Poner valor a mano').click();
+  const hand = page.getByRole('button', { name: /Poner valor a mano/ });
+  await expect(hand).toHaveAttribute('aria-expanded', 'false');
+  await hand.click();
+  await expect(hand).toHaveAttribute('aria-expanded', 'true');
   await page.getByLabel('Vale hoy').fill('1.000');
+  const saved = page.waitForResponse((r) => r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Guardar' }).click();
+  await saved;
+  // From the server, not the field: the value by hand wins from today.
+  await page.reload();
   await expect(page.locator('.hero')).toHaveText('1.000 €');
 });

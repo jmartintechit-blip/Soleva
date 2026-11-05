@@ -124,6 +124,10 @@ const emptyGroups = (): Record<Group, number> => ({
   deudas: 0,
 });
 
+// A rule as the projection takes it: «¿Qué pasa si…?» can pause it for a while (the days after
+// `from` up to `to`, included). Never stored: the daily engine has no pauses.
+export type ProjectedRule = AutoRule & { pause?: { from: Day; to: Day } };
+
 // The order the daily engine runs a day in (advance.ts): incomes, transfers, expenses, plans.
 const ORDER: AutoRule['kind'][] = ['ingreso', 'transferencia', 'gasto', 'plan'];
 
@@ -133,7 +137,7 @@ export function projectLedger(
   months: number,
   scenario: Scenario,
   assumptions: ProjectionAssumptions = DEFAULT_ASSUMPTIONS,
-  rules: readonly AutoRule[] = [],
+  rules: readonly ProjectedRule[] = [],
 ): ProjectionStep[] {
   const ids = new Set(accounts.map((a) => a.id));
   const cash = new Map(accounts.map((a) => [a.id, a.cashCents]));
@@ -181,7 +185,9 @@ export function projectLedger(
   for (const r of [...rules].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind))) {
     const touched = [r.fromAccountId, r.toAccountId, r.shortfallAccountId].filter(Boolean);
     if (!r.active || !touched.every((id) => ids.has(id!))) continue;
-    for (const d of occurrences(r, today, end)) ruleDays.set(d, [...(ruleDays.get(d) ?? []), r]);
+    for (const d of occurrences(r, today, end))
+      if (!r.pause || d <= r.pause.from || d > r.pause.to)
+        ruleDays.set(d, [...(ruleDays.get(d) ?? []), r]);
   }
 
   const netAccrued = (a: ProjectedAccount) => payment(accrued.get(a.id)!, a.interest!).net;

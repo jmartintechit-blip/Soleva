@@ -15,6 +15,9 @@ export interface DebtTerms {
   spreadBp?: number;
   reviewMonths?: number;
   floorBp?: number;
+  // Mixed: the first `fixedMonths` payments keep the initial rate; the first review is the next
+  // one, and from there every `reviewMonths`.
+  fixedMonths?: number;
 }
 
 export interface Payment {
@@ -34,11 +37,19 @@ export function annuityCents(principalCents: number, rateBp: number, months: num
 }
 
 // The latest index published by `month`, two months back (the usual lag of Spanish mortgages).
-function indexFor(t: DebtTerms, reviewMonth: string): number | undefined {
-  for (let m = addMonths(reviewMonth, -2), k = 0; k < 24; m = addMonths(m, -1), k++)
-    if (t.index?.[m] !== undefined) return t.index[m];
-  return undefined;
+// However old it is: a review years ahead takes today's Euribor, as the projection assumes.
+export function indexFor(t: DebtTerms, reviewMonth: string): number | undefined {
+  const by = addMonths(reviewMonth, -2);
+  let best: string | undefined;
+  for (const m of Object.keys(t.index ?? {}))
+    if (m <= by && (best === undefined || m > best)) best = m;
+  return best === undefined ? undefined : t.index![best];
 }
+
+const isReview = (t: DebtTerms, k: number) => {
+  const fixed = t.fixedMonths ?? 0;
+  return k > 0 && k >= fixed && (k - fixed) % t.reviewMonths! === 0;
+};
 
 // Every payment of the loan: interest on what is owed, the rest lowers it; a variable rate is
 // reset at each review (index + spread, never under the floor) and the payment recomputed for
@@ -52,7 +63,7 @@ export function amortization(t: DebtTerms): Payment[] {
   let pay = annuityCents(owed, rate, t.termMonths);
   for (let k = 0; k < t.termMonths && owed > 0; k++) {
     const m = addMonths(first, k);
-    if (t.rateType === 'variable' && k > 0 && k % t.reviewMonths! === 0) {
+    if (t.rateType === 'variable' && isReview(t, k)) {
       const idx = indexFor(t, m);
       if (idx !== undefined) {
         const next = Math.max(t.floorBp ?? -Infinity, idx + t.spreadBp!, 0);

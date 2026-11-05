@@ -50,7 +50,9 @@
       </section>
 
       <section class="f2 group" aria-labelledby="aviso">
-        <h2 id="aviso" class="sv-label">Recordatorio de cierre</h2>
+        <h2 id="aviso" class="sv-label">
+          {data.ledger ? 'Recordatorio del cuadre' : 'Recordatorio de cierre'}
+        </h2>
         <form
           method="POST"
           action="?/recordatorio"
@@ -61,7 +63,11 @@
             }}
         >
           <label class="toggle">
-            <span>Avisarme por email para cerrar el mes</span>
+            <span
+              >{data.ledger
+                ? 'Avisarme por email para cuadrar mis cuentas'
+                : 'Avisarme por email para cerrar el mes'}</span
+            >
             <input
               type="checkbox"
               class="sv-switch"
@@ -91,7 +97,9 @@
               >
             </span>
             <span class="sv-field__hint"
-              >Solo si tienes un mes sin cerrar. Hasta el 28, que existe siempre.</span
+              >{data.ledger
+                ? 'Una vez al mes. Hasta el 28, que existe siempre.'
+                : 'Solo si tienes un mes sin cerrar. Hasta el 28, que existe siempre.'}</span
             >
           </label>
           {#if form?.reminderErrors?.day}<span class="err">{form.reminderErrors.day}</span>{/if}

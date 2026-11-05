@@ -17,9 +17,10 @@ test('home and projection follow the accounts and rules, live', async ({ page })
     values (${id}, 'Ahorro', 'mueve', 30000, 'mensual', 1, date_trunc('month', now()),
       ${cash!.id}, ${fund!.id})`;
 
+  // On the way in the user goes to the ledger with the same 12.000 €; the projection still reads
+  // the balances and the v0 rules until B13.
   await page.goto('/inicio');
-  await expect(page.getByText('12.000 €')).toBeVisible();
-  await expect(page.getByText(/En 10 años: ~/)).toBeVisible();
+  await expect(page.getByText('12.000 €').first()).toBeVisible();
 
   await page.goto('/proyeccion');
   await hydrated(page);

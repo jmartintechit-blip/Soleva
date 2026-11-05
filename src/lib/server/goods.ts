@@ -244,6 +244,65 @@ export async function updateGood(
   return true;
 }
 
+// A home or car from v0, on the ledger without its details (B12 tarea 11): valued at its balance
+// until the user completes it in RInmueble or RCoche, and given up or deleted like the others.
+// Null for anything else, given up, or someone else's.
+export async function bareAsset(db: Db, userId: string, id: string) {
+  const [a] = await db.query<{ name: string; kind: string; role: string }>(
+    `select a.name, a.kind, x.role from money_account a
+     join account_access x on x.account_id = a.id and x.user_id = $1
+     where a.id = $2 and a.kind in ('inmueble', 'vehiculo') and a.closed_on is null
+       and not exists (select 1 from property where account_id = a.id)
+       and not exists (select 1 from vehicle where account_id = a.id)
+       and exists (select 1 from engine_state where user_id = $1)`,
+    [userId, id],
+  );
+  if (!a) return null;
+  return {
+    id,
+    name: a.name,
+    page: a.kind === 'inmueble' ? ('inmueble' as const) : ('coche' as const),
+    canEdit: a.role === 'propietario' || a.role === 'editor',
+  };
+}
+
+// Completes a bare car (see bareAsset): its details from today and, as a value put in, an
+// adjustment of today to what the table (or the user) says it is worth. Null if it is not one the
+// user can change; 'sin_valor' with no value to give it.
+export async function completeGood(
+  db: Db,
+  userId: string,
+  id: string,
+  day: Day,
+  p: GoodInput,
+): Promise<true | 'sin_valor' | null> {
+  const bare = await bareAsset(db, userId, id);
+  if (!bare?.canEdit || bare.page !== 'coche') return null;
+  const target = await startValue(db, p, day);
+  if (!target) return 'sin_valor';
+  try {
+    await db.transaction(async (tx) => {
+      await tx.query(`update money_account set name = $2 where id = $1`, [id, p.name]);
+      await tx.query(
+        `insert into vehicle (account_id, vehicle_base_id, first_registration, override_cents)
+         values ($1, $2, $3, $4)`,
+        [id, p.baseId ?? null, p.firstRegistration, p.ownCents ?? null],
+      );
+      const now = (await goodView(tx, userId, id, day))!.valueCents;
+      if (target !== now)
+        await tx.query(
+          `insert into movement (account_id, day, kind, amount_cents, source)
+           values ($1, $2, 'ajuste', $3, 'manual')`,
+          [id, day, target - now],
+        );
+    });
+  } catch (error) {
+    if (refused(error)) return null;
+    throw error;
+  }
+  return true;
+}
+
 const isDay = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 // RCoche's and RBien's forms.

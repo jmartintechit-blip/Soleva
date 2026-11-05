@@ -5,6 +5,7 @@ import { PROPERTY_KINDS, PROVINCE_NAME, type PropertyKind } from '#lib/labels.ts
 import { MAX_CENTS } from './accounts.ts';
 import { openAccount } from './alta.ts';
 import type { Db } from './db/index.ts';
+import { bareAsset } from './goods.ts';
 import { normalize } from './housing.ts';
 
 // Vivienda o inmueble (b12/RInmueble, LEEME-B12-inmueble): always an asset, its mortgage apart.
@@ -332,6 +333,59 @@ export async function updateProperty(
           `insert into movement (account_id, day, kind, amount_cents, source)
            values ($1, $2, 'ajuste', $3, 'manual')`,
           [id, day, target - before.exactCents],
+        );
+      return true as const;
+    });
+  } catch (error) {
+    if (isRefused(error)) return null;
+    throw error;
+  }
+}
+
+// Completes a bare home (see bareAsset in goods.ts): its details from today and, as a new value,
+// an adjustment of today to m² × €/m² today (or the user's value). The index moves it from today.
+// Null if it is not one the user can change; 'sin_dato' with no figure for the place.
+export async function completeProperty(
+  db: Db,
+  userId: string,
+  id: string,
+  day: Day,
+  p: PropertyInput,
+): Promise<true | 'sin_dato' | null> {
+  const bare = await bareAsset(db, userId, id);
+  if (!bare?.canEdit || bare.page !== 'inmueble') return null;
+  let target = p.ownCents ?? 0;
+  if (p.method === 'm2') {
+    const m2 = (await placeOf(db, p.municipalityCode))?.m2;
+    if (!m2) return 'sin_dato';
+    target = toStep(p.areaM2 * m2.todayEurM2Cents);
+  }
+  try {
+    return await db.transaction(async (tx) => {
+      await tx.query(`update money_account set name = $2 where id = $1`, [id, p.name]);
+      await tx.query(
+        `insert into property (account_id, kind, municipality_code, area_m2, purchase_year,
+           purchase_cents, value_method, value_on, growth_bp, mortgage_account_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          id,
+          p.kind,
+          p.municipalityCode,
+          p.areaM2,
+          p.purchaseYear ?? null,
+          p.purchaseCents ?? null,
+          p.method,
+          day,
+          p.growthBp,
+          p.mortgageAccountId ?? null,
+        ],
+      );
+      const now = (await propertyView(tx, userId, id, day))!.exactCents;
+      if (target !== now)
+        await tx.query(
+          `insert into movement (account_id, day, kind, amount_cents, source)
+           values ($1, $2, 'ajuste', $3, 'manual')`,
+          [id, day, target - now],
         );
       return true as const;
     });

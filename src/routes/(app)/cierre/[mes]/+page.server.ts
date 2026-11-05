@@ -1,7 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
 import { parseEuros } from '#lib/engine/money.ts';
 import { MAX_CENTS } from '#lib/server/accounts.ts';
-import { amendClose, getClose } from '#lib/server/closes.ts';
+import { amendClose, getClose, leaveClose } from '#lib/server/closes.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -10,6 +10,7 @@ const validMonth = (m: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(m);
 
 export const load: PageServerLoad = async (event) => {
   const userId = await requireUserId(event);
+  await leaveClose(event.locals.db(), userId);
   const close = validMonth(event.params.mes)
     ? await getClose(event.locals.db(), userId, event.params.mes)
     : null;
@@ -20,6 +21,7 @@ export const load: PageServerLoad = async (event) => {
 export const actions: Actions = {
   enmendar: async (event) => {
     const userId = await requireUserId(event);
+    await leaveClose(event.locals.db(), userId);
     if (!validMonth(event.params.mes)) error(404, 'No encontrado');
     const form = await event.request.formData();
     const account = String(form.get('account') ?? '');

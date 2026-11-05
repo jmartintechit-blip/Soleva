@@ -53,3 +53,21 @@ it('reminds on the chosen day, once per open month, and respects the switch', as
   expect(await run('2026-12-28')).toBe(1);
   expect(sent.at(-1)!.subject).toBe('Cierra diciembre en Soleva');
 });
+
+it('on the ledger: «Cuadra tus cuentas», to Cuentas, once in each month on the chosen day', async () => {
+  await db.query(
+    `insert into engine_state (user_id, processed_through) values ('ana', '2026-11-01')`,
+  );
+  expect(await run('2026-11-01')).toBe(2);
+  const ana = sent.find((e) => e.to === 'ana@example.com')!;
+  expect(ana.subject).toBe('Cuadra tus cuentas en Soleva');
+  expect(ana.text).toContain('https://solevaapp.com/cuentas');
+  expect(ana.text).not.toContain('/cierre');
+  expect(sent.find((e) => e.to === 'eva@example.com')!.subject).toBe('Cierra octubre en Soleva');
+  expect(await run('2026-11-01')).toBe(0);
+  // The next month, again (the ledger has no month left to close that would hold it back).
+  expect(await run('2026-12-01')).toBe(2);
+  expect(sent.slice(-2).find((e) => e.to === 'ana@example.com')!.subject).toBe(
+    'Cuadra tus cuentas en Soleva',
+  );
+});

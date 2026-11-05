@@ -19,7 +19,8 @@
     "migrate": "node --env-file-if-exists=.env src/lib/server/db/migrate-cli.ts",
     "usage": "node --env-file-if-exists=.env src/lib/server/usage-cli.ts",
     "hacienda": "node --env-file-if-exists=.env src/lib/server/hacienda-cli.ts",
-    "vivienda": "node --env-file-if-exists=.env src/lib/server/housing-cli.ts"
+    "vivienda": "node --env-file-if-exists=.env src/lib/server/housing-cli.ts",
+    "ensayo-libro": "node --env-file-if-exists=.env src/lib/server/cutover-cli.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.12",

@@ -636,159 +636,165 @@ export async function rebuildHistory(tx: Db, userId: string, from: Day) {
 // One user's run, alone (advisory lock) and all or nothing: generate what is owed up to `today`,
 // reprice the buys whose close is out, rebuild the holdings cache, keep the daily and monthly
 // history and refresh the alerts. Users not on the ledger yet (before the cut-over) are skipped.
-export async function runUser(db: Db, userId: string, today: Day) {
-  return db.transaction(async (tx) => {
-    await tx.query(`select pg_advisory_xact_lock(hashtext($1))`, [userId]);
-    const setup = await readSetup(tx, userId);
-    const state = setup.state;
-    if (!state) return null;
-    const from = state.through < today ? state.through : today;
-    const compact = !state.touched && state.forecast !== null;
-    const { ledger, provisional, standIns, input, holdings } = await loadUser(
-      tx,
+export function runUser(db: Db, userId: string, today: Day) {
+  return db.transaction((tx) => runUserIn(tx, userId, today));
+}
+
+// The same run inside a transaction the caller holds (the cut-over checks it before committing).
+export async function runUserIn(tx: Db, userId: string, today: Day) {
+  await tx.query(`select pg_advisory_xact_lock(hashtext($1))`, [userId]);
+  const setup = await readSetup(tx, userId);
+  const state = setup.state;
+  if (!state) return null;
+  const from = state.through < today ? state.through : today;
+  const compact = !state.touched && state.forecast !== null;
+  const { ledger, provisional, standIns, input, holdings } = await loadUser(
+    tx,
+    userId,
+    setup,
+    from,
+    compact,
+  );
+
+  const fresh = advance(input, ledger, from, today);
+
+  // Provisional buys whose own day's close is now published.
+  const repriced: Movement[] = [];
+  const repricedIds: string[] = [];
+  for (const m of provisional) {
+    const q = input.market.close(m.instrumentId!, m.day);
+    const fx = input.market.perEur(input.market.currency(m.instrumentId!), m.day);
+    if (q?.day !== m.day || !fx) continue;
+    const r = reprice(m, q.priceE8, fx);
+    repriced.push(r);
+    repricedIds.push(m.id);
+    // Compacted, the cache's stand-in holds the old units; whole, the movement itself does.
+    const standIn = standIns.get(holdingKey(m.accountId, m.instrumentId!));
+    if (standIn) standIn.qtyE8! += r.qtyE8! - m.qtyE8!;
+    else Object.assign(m, r);
+  }
+
+  const all = [...ledger, ...fresh];
+  const held = [...fold(all).holdings].filter(([, h]) => h.qtyE8 > 0n);
+
+  const { days, months } = history(input, holdings, all, from, today);
+  const today_ = valuation(holdings, all, today);
+  const { alerts: found, forecast } = alerts(
+    input,
+    holdings,
+    all,
+    today,
+    state.forecast ?? undefined,
+    state.hand,
+  );
+
+  // The one write: every part is a data-modifying CTE of the same statement. The parts touch
+  // different rows (positions kept are upserted, the others deleted; alerts found are upserted,
+  // the others resolved), so a single snapshot is enough.
+  const col = <T, U>(xs: T[], f: (x: T) => U) => xs.map(f);
+  await tx.query(
+    `with
+     ins as (
+       insert into movement (account_id, day, seq, kind, amount_cents, instrument_id, qty_e8, price_e8,
+         fx_e8, withholding_cents, transfer_id, source, rule_id, occurrence_key, provisional)
+       select * from unnest($1::text[], $2::date[], $3::int[], $4::text[], $5::bigint[], $6::text[],
+         $7::bigint[], $8::bigint[], $9::bigint[], $10::bigint[], $11::text[], $12::text[], $13::text[],
+         $14::text[], $15::boolean[])
+       on conflict (occurrence_key) where occurrence_key is not null do nothing returning 1),
+     rep as (
+       update movement m set price_e8 = r.price, fx_e8 = r.fx, qty_e8 = r.qty, provisional = false
+       from unnest($16::text[], $17::bigint[], $18::bigint[], $19::bigint[]) as r(id, price, fx, qty)
+       where m.id = r.id returning 1),
+     pos as (
+       insert into position (account_id, instrument_id, qty_e8, cost_cents)
+       select * from unnest($20::text[], $21::text[], $22::bigint[], $23::bigint[])
+       on conflict (account_id, instrument_id) do update
+         set qty_e8 = excluded.qty_e8, cost_cents = excluded.cost_cents, updated_at = now()
+       returning 1),
+     gone as (
+       delete from position p where p.account_id = any($24::text[]) and not exists (
+         select 1 from unnest($20::text[], $21::text[]) as k(a, i)
+         where k.a = p.account_id and k.i = p.instrument_id)
+       returning 1),
+     ud as (
+       insert into user_day (user_id, day, total_cents, flows_cents, accounts, classes)
+       select $25, * from unnest($26::date[], $27::bigint[], $28::bigint[], $40::jsonb[], $41::jsonb[])
+       on conflict (user_id, day) do update set total_cents = excluded.total_cents,
+         flows_cents = excluded.flows_cents, accounts = excluded.accounts, classes = excluded.classes
+       returning 1),
+     am as (
+       insert into account_month (account_id, month, value_cents, flows_cents)
+       select * from unnest($29::text[], $30::date[], $31::bigint[], $32::bigint[])
+       on conflict (account_id, month) do update
+         set value_cents = excluded.value_cents, flows_cents = excluded.flows_cents
+       returning 1),
+     al as (
+       insert into alert (user_id, kind, account_id, instrument_id, day, dedupe_key, detail)
+       select $25, * from unnest($33::text[], $34::text[], $35::text[], $36::date[], $37::text[],
+         $44::jsonb[])
+       on conflict (user_id, dedupe_key) do update set day = excluded.day, detail = excluded.detail,
+         state = case when alert.state = 'resuelta' then 'abierta' else alert.state end
+       returning 1),
+     -- Bridge until the projection reads the ledger (B13): v0 pages keep reading balance_cents.
+     -- Not for an archived account: one archived in v0 keeps its last balance in Cuentas (it
+     -- opened nothing in the ledger) and a baja already set its own to 0.
+     bal as (
+       update money_account m set balance_cents = least(99999999999, greatest(0, abs(b.v)))
+       from unnest($42::text[], $43::bigint[]) as b(id, v)
+       where m.id = b.id and m.archived_at is null
+       returning 1),
+     res as (
+       update alert set state = 'resuelta'
+       where user_id = $25 and state <> 'resuelta' and not (dedupe_key = any($37::text[]))
+       returning 1)
+     update engine_state set processed_through = $38, forecast = $39, updated_at = now()
+     where user_id = $25`,
+    [
+      col(fresh, (m) => m.accountId),
+      col(fresh, (m) => m.day),
+      col(fresh, (m) => m.seq),
+      col(fresh, (m) => m.kind),
+      col(fresh, (m) => m.amountCents),
+      col(fresh, (m) => m.instrumentId ?? null),
+      col(fresh, (m) => m.qtyE8?.toString() ?? null),
+      col(fresh, (m) => m.priceE8?.toString() ?? null),
+      col(fresh, (m) => m.fxE8?.toString() ?? null),
+      col(fresh, (m) => m.withholdingCents ?? 0),
+      col(fresh, (m) => m.transferId ?? null),
+      col(fresh, (m) => m.source),
+      col(fresh, (m) => m.ruleId ?? null),
+      col(fresh, (m) => m.occurrenceKey ?? null),
+      col(fresh, (m) => m.provisional ?? false),
+      repricedIds,
+      col(repriced, (r) => r.priceE8!.toString()),
+      col(repriced, (r) => r.fxE8!.toString()),
+      col(repriced, (r) => r.qtyE8!.toString()),
+      col(held, ([k]) => k.split('|')[0]),
+      col(held, ([k]) => k.split('|')[1]),
+      col(held, ([, h]) => h.qtyE8.toString()),
+      col(held, ([, h]) => Math.max(0, h.costCents)),
+      holdings.accounts.map((a) => a.id),
       userId,
-      setup,
-      from,
-      compact,
-    );
-
-    const fresh = advance(input, ledger, from, today);
-
-    // Provisional buys whose own day's close is now published.
-    const repriced: Movement[] = [];
-    const repricedIds: string[] = [];
-    for (const m of provisional) {
-      const q = input.market.close(m.instrumentId!, m.day);
-      const fx = input.market.perEur(input.market.currency(m.instrumentId!), m.day);
-      if (q?.day !== m.day || !fx) continue;
-      const r = reprice(m, q.priceE8, fx);
-      repriced.push(r);
-      repricedIds.push(m.id);
-      // Compacted, the cache's stand-in holds the old units; whole, the movement itself does.
-      const standIn = standIns.get(holdingKey(m.accountId, m.instrumentId!));
-      if (standIn) standIn.qtyE8! += r.qtyE8! - m.qtyE8!;
-      else Object.assign(m, r);
-    }
-
-    const all = [...ledger, ...fresh];
-    const held = [...fold(all).holdings].filter(([, h]) => h.qtyE8 > 0n);
-
-    const { days, months } = history(input, holdings, all, from, today);
-    const today_ = valuation(holdings, all, today);
-    const { alerts: found, forecast } = alerts(
-      input,
-      holdings,
-      all,
+      col(days, (x) => x[0]),
+      col(days, (x) => x[1]),
+      col(days, (x) => x[2]),
+      col(months, (x) => x[0]),
+      col(months, (x) => x[1]),
+      col(months, (x) => x[2]),
+      col(months, (x) => x[3]),
+      col(found, (a) => a.kind),
+      col(found, (a) => a.accountId ?? null),
+      col(found, (a) => a.instrumentId ?? null),
+      col(found, (a) => a.day),
+      col(found, (a) => a.key),
       today,
-      state.forecast ?? undefined,
-      state.hand,
-    );
-
-    // The one write: every part is a data-modifying CTE of the same statement. The parts touch
-    // different rows (positions kept are upserted, the others deleted; alerts found are upserted,
-    // the others resolved), so a single snapshot is enough.
-    const col = <T, U>(xs: T[], f: (x: T) => U) => xs.map(f);
-    await tx.query(
-      `with
-       ins as (
-         insert into movement (account_id, day, seq, kind, amount_cents, instrument_id, qty_e8, price_e8,
-           fx_e8, withholding_cents, transfer_id, source, rule_id, occurrence_key, provisional)
-         select * from unnest($1::text[], $2::date[], $3::int[], $4::text[], $5::bigint[], $6::text[],
-           $7::bigint[], $8::bigint[], $9::bigint[], $10::bigint[], $11::text[], $12::text[], $13::text[],
-           $14::text[], $15::boolean[])
-         on conflict (occurrence_key) where occurrence_key is not null do nothing returning 1),
-       rep as (
-         update movement m set price_e8 = r.price, fx_e8 = r.fx, qty_e8 = r.qty, provisional = false
-         from unnest($16::text[], $17::bigint[], $18::bigint[], $19::bigint[]) as r(id, price, fx, qty)
-         where m.id = r.id returning 1),
-       pos as (
-         insert into position (account_id, instrument_id, qty_e8, cost_cents)
-         select * from unnest($20::text[], $21::text[], $22::bigint[], $23::bigint[])
-         on conflict (account_id, instrument_id) do update
-           set qty_e8 = excluded.qty_e8, cost_cents = excluded.cost_cents, updated_at = now()
-         returning 1),
-       gone as (
-         delete from position p where p.account_id = any($24::text[]) and not exists (
-           select 1 from unnest($20::text[], $21::text[]) as k(a, i)
-           where k.a = p.account_id and k.i = p.instrument_id)
-         returning 1),
-       ud as (
-         insert into user_day (user_id, day, total_cents, flows_cents, accounts, classes)
-         select $25, * from unnest($26::date[], $27::bigint[], $28::bigint[], $40::jsonb[], $41::jsonb[])
-         on conflict (user_id, day) do update set total_cents = excluded.total_cents,
-           flows_cents = excluded.flows_cents, accounts = excluded.accounts, classes = excluded.classes
-         returning 1),
-       am as (
-         insert into account_month (account_id, month, value_cents, flows_cents)
-         select * from unnest($29::text[], $30::date[], $31::bigint[], $32::bigint[])
-         on conflict (account_id, month) do update
-           set value_cents = excluded.value_cents, flows_cents = excluded.flows_cents
-         returning 1),
-       al as (
-         insert into alert (user_id, kind, account_id, instrument_id, day, dedupe_key, detail)
-         select $25, * from unnest($33::text[], $34::text[], $35::text[], $36::date[], $37::text[],
-           $44::jsonb[])
-         on conflict (user_id, dedupe_key) do update set day = excluded.day, detail = excluded.detail,
-           state = case when alert.state = 'resuelta' then 'abierta' else alert.state end
-         returning 1),
-       -- Bridge until the projection reads the ledger (B13): v0 pages keep reading balance_cents.
-       bal as (
-         update money_account m set balance_cents = least(99999999999, greatest(0, abs(b.v)))
-         from unnest($42::text[], $43::bigint[]) as b(id, v) where m.id = b.id
-         returning 1),
-       res as (
-         update alert set state = 'resuelta'
-         where user_id = $25 and state <> 'resuelta' and not (dedupe_key = any($37::text[]))
-         returning 1)
-       update engine_state set processed_through = $38, forecast = $39, updated_at = now()
-       where user_id = $25`,
-      [
-        col(fresh, (m) => m.accountId),
-        col(fresh, (m) => m.day),
-        col(fresh, (m) => m.seq),
-        col(fresh, (m) => m.kind),
-        col(fresh, (m) => m.amountCents),
-        col(fresh, (m) => m.instrumentId ?? null),
-        col(fresh, (m) => m.qtyE8?.toString() ?? null),
-        col(fresh, (m) => m.priceE8?.toString() ?? null),
-        col(fresh, (m) => m.fxE8?.toString() ?? null),
-        col(fresh, (m) => m.withholdingCents ?? 0),
-        col(fresh, (m) => m.transferId ?? null),
-        col(fresh, (m) => m.source),
-        col(fresh, (m) => m.ruleId ?? null),
-        col(fresh, (m) => m.occurrenceKey ?? null),
-        col(fresh, (m) => m.provisional ?? false),
-        repricedIds,
-        col(repriced, (r) => r.priceE8!.toString()),
-        col(repriced, (r) => r.fxE8!.toString()),
-        col(repriced, (r) => r.qtyE8!.toString()),
-        col(held, ([k]) => k.split('|')[0]),
-        col(held, ([k]) => k.split('|')[1]),
-        col(held, ([, h]) => h.qtyE8.toString()),
-        col(held, ([, h]) => Math.max(0, h.costCents)),
-        holdings.accounts.map((a) => a.id),
-        userId,
-        col(days, (x) => x[0]),
-        col(days, (x) => x[1]),
-        col(days, (x) => x[2]),
-        col(months, (x) => x[0]),
-        col(months, (x) => x[1]),
-        col(months, (x) => x[2]),
-        col(months, (x) => x[3]),
-        col(found, (a) => a.kind),
-        col(found, (a) => a.accountId ?? null),
-        col(found, (a) => a.instrumentId ?? null),
-        col(found, (a) => a.day),
-        col(found, (a) => a.key),
-        today,
-        JSON.stringify(forecast),
-        col(days, (x) => x[3]),
-        col(days, (x) => x[4]),
-        Object.keys(today_.byAccount),
-        Object.values(today_.byAccount),
-        col(found, (a) => JSON.stringify(a.detail)),
-      ],
-    );
-    return { generated: fresh.length, repriced: repriced.length, alerts: found.length };
-  });
+      JSON.stringify(forecast),
+      col(days, (x) => x[3]),
+      col(days, (x) => x[4]),
+      Object.keys(today_.byAccount),
+      Object.values(today_.byAccount),
+      col(found, (a) => JSON.stringify(a.detail)),
+    ],
+  );
+  return { generated: fresh.length, repriced: repriced.length, alerts: found.length };
 }

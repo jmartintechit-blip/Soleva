@@ -4,7 +4,13 @@ import { amendClose, confirmClose, netWorthHistory } from './closes.ts';
 import type { Db } from './db/index.ts';
 import { migrate } from './db/migrate.ts';
 import { createPgliteDb } from './db/pglite.ts';
-import { migrateUserToLedger } from './ledger-migration.ts';
+import { loadHome } from './home.ts';
+import {
+  CutOverMismatch,
+  enterApp,
+  migrateUserToLedger,
+  rehearseCutOver,
+} from './ledger-migration.ts';
 import { createRule } from './rules.ts';
 
 let db: Db;
@@ -101,8 +107,9 @@ describe('migrateUserToLedger', () => {
     await createAccount(db, 'eva', { ...base, name: 'De Eva', kind: 'efectivo', balanceCents: 1 });
 
     const accountsBefore = await listAccounts(db, 'ana');
+    // As v0's Inicio: without the archived one.
     const net = accountsBefore.reduce(
-      (s, a) => s + (a.kind === 'deuda' ? -a.balanceCents : a.balanceCents),
+      (s, a) => s + (a.archived ? 0 : a.kind === 'deuda' ? -a.balanceCents : a.balanceCents),
       0,
     );
     const history = await netWorthHistory(db, 'ana');
@@ -126,7 +133,6 @@ describe('migrateUserToLedger', () => {
         amount: -50_000,
         source: 'migracion',
       },
-      { name: 'Vieja', kind: 'bien', day: TODAY, amount: 7_000, source: 'migracion' },
     ]);
     expect(
       await db.query(
@@ -180,5 +186,139 @@ describe('migrateUserToLedger', () => {
     expect(await ledgerNet('ana')).toBe(net);
     expect(await ledgerNet('eva')).toBe(0);
     expect(await db.query(`select 1 from auto_rule where user_id = 'eva'`)).toEqual([]);
+  });
+});
+
+describe('enterApp', () => {
+  // What Inicio shows: per account and in total, before (v0) and after (the ledger's last day).
+  const v0Inicio = async (userId: string) => {
+    const accounts = (await listAccounts(db, userId)).filter((a) => !a.archived);
+    const byAccount = Object.fromEntries(
+      accounts.map((a) => [a.id, a.kind === 'deuda' ? -a.balanceCents : a.balanceCents]),
+    );
+    return { byAccount, total: Object.values(byAccount).reduce((s, v) => s + v, 0) };
+  };
+  const ledgerInicio = async (userId: string) => {
+    const home = await loadHome(db, userId);
+    const last = home.rows.at(-1)!;
+    return {
+      byAccount: Object.fromEntries(
+        home.accounts.map((a) => [a.id, last.accounts[a.id]?.[0] ?? 0]),
+      ),
+      total: last.total,
+    };
+  };
+
+  it('moves a v0 user to the ledger with the same net worth, account by account and in total', async () => {
+    const every = [
+      ['Banco', 'efectivo', 200_037, false, 0],
+      ['Remunerada', 'remunerada', 500_000, false, 250],
+      ['Fondo', 'inversion', 1_200_000, false, 0],
+      ['Plan', 'pension', 300_000, true, 0],
+      ['Bitcoin', 'cripto', 45_678, true, 0],
+      ['Piso', 'inmueble', 18_000_000, true, 0],
+      ['Coche', 'vehiculo', 1_200_000, true, 0],
+      ['Reloj', 'otro', 90_000, true, 0],
+      ['Hipoteca', 'deuda', 9_000_000, false, 0],
+      ['Vacía', 'efectivo', 0, false, 0],
+    ] as const;
+    const ids: string[] = [];
+    for (const [name, kind, balanceCents, isEstimated, annualRateBp] of every)
+      ids.push(
+        await createAccount(db, 'ana', { name, kind, balanceCents, isEstimated, annualRateBp }),
+      );
+    const old = await createAccount(db, 'ana', {
+      ...base,
+      name: 'Vieja',
+      kind: 'efectivo',
+      balanceCents: 7_000,
+    });
+    await setArchived(db, 'ana', old, true);
+    await createRule(db, 'ana', {
+      name: 'Nómina',
+      type: 'entra',
+      frequency: 'mensual',
+      day: 15,
+      startMonth: '2026-01',
+      active: true,
+      amountCents: 150_000,
+      fromAccountId: undefined,
+      toAccountId: ids[0],
+    });
+    await confirmClose(db, 'ana', '2026-10', { [ids[0]!]: 200_037, [ids[8]!]: 9_000_000 });
+    await createAccount(db, 'eva', { ...base, name: 'De Eva', kind: 'efectivo', balanceCents: 1 });
+
+    const before = await v0Inicio('ana');
+
+    expect(await enterApp(db, 'ana', TODAY)).toBe('migrado');
+    expect(await ledgerInicio('ana')).toEqual(before);
+    // The archived account stays out of net worth, and keeps its balance in Cuentas.
+    expect((await listAccounts(db, 'ana')).find((a) => a.id === old)).toMatchObject({
+      archived: true,
+      balanceCents: 7_000,
+    });
+    // The rule does not repeat today's pay, which the balance already holds.
+    expect(
+      await db.query(`select 1 from movement where source = 'regla' and day <= $1`, [TODAY]),
+    ).toEqual([]);
+
+    // Once: the second visit does nothing; the next day the run catches up, rules included.
+    expect(await enterApp(db, 'ana', TODAY)).toBe('al-dia');
+    expect(await ledgerInicio('ana')).toEqual(before);
+    expect(await enterApp(db, 'ana', '2026-12-16')).toBe('puesto-al-dia');
+    expect(
+      await db.query(`select processed_through::text as d from engine_state where user_id = 'ana'`),
+    ).toEqual([{ d: '2026-12-16' }]);
+    expect((await ledgerInicio('ana')).byAccount[ids[0]!]).toBe(200_037 + 150_000);
+    // Nobody else is touched.
+    expect(await db.query(`select 1 from engine_state where user_id = 'eva'`)).toEqual([]);
+  });
+
+  it('a new user with nothing yet goes to the ledger at zero', async () => {
+    expect(await enterApp(db, 'eva', TODAY)).toBe('migrado');
+    expect(await loadHome(db, 'eva')).toMatchObject({ accounts: [] });
+  });
+
+  it('if anything would not add up, changes nothing and the user stays on v0', async () => {
+    const cash = await createAccount(db, 'ana', {
+      ...base,
+      name: 'Banco',
+      kind: 'efectivo',
+      balanceCents: 100_000,
+    });
+    // A stray movement from before: the ledger would say 100.050 € where v0 says 100.000 €.
+    await db.query(
+      `insert into movement (account_id, day, kind, amount_cents, source) values ($1, $2, 'ajuste', 5000, 'manual')`,
+      [cash, '2026-11-01'],
+    );
+    const error = await enterApp(db, 'ana', TODAY).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CutOverMismatch);
+    expect((error as CutOverMismatch).diffs).toEqual([
+      { account: cash, before: 100_000, after: 105_000 },
+      { account: 'total', before: 100_000, after: 105_000 },
+    ]);
+    expect(await db.query(`select 1 from engine_state`)).toEqual([]);
+    expect(await db.query(`select 1 from user_day`)).toEqual([]);
+    expect(await db.query(`select count(*)::int as n from movement`)).toEqual([{ n: 1 }]);
+  });
+
+  it('rehearses every v0 user without writing anything', async () => {
+    await createAccount(db, 'ana', { ...base, name: 'Banco', kind: 'efectivo', balanceCents: 100 });
+    const loan = await createAccount(db, 'eva', {
+      ...base,
+      name: 'Préstamo',
+      kind: 'deuda',
+      balanceCents: 300,
+    });
+    expect(await rehearseCutOver(db, TODAY)).toEqual([
+      { accounts: 1, total: 100, diffs: [] },
+      { accounts: 1, total: -300, diffs: [] },
+    ]);
+    for (const table of ['engine_state', 'movement', 'user_day', 'account_month', 'auto_rule'])
+      expect(await db.query(`select 1 from ${table}`)).toEqual([]);
+    expect((await listAccounts(db, 'eva'))[0]).toMatchObject({ id: loan, kind: 'deuda' });
+    // A user already on the ledger is not rehearsed.
+    await enterApp(db, 'ana', TODAY);
+    expect(await rehearseCutOver(db, TODAY)).toEqual([{ accounts: 1, total: -300, diffs: [] }]);
   });
 });

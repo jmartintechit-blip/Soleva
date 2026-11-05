@@ -6,7 +6,13 @@
 </script>
 
 <svelte:head>
-  <title>{data.view.name} · Soleva</title>
+  <title>{data.view?.name ?? data.bare?.name} · Soleva</title>
 </svelte:head>
 
-<PropertyForm view={data.view} debts={data.debts} fromAlta={data.fromAlta} {form} />
+<PropertyForm
+  view={data.view}
+  bare={data.bare}
+  debts={data.debts}
+  fromAlta={data.fromAlta}
+  {form}
+/>

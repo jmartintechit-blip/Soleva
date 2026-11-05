@@ -4,6 +4,7 @@ import { MAX_CENTS } from '#lib/server/accounts.ts';
 import {
   confirmClose,
   lastClosedMonth,
+  leaveClose,
   monthToClose,
   netWorthHistory,
   proposeClose,
@@ -22,6 +23,7 @@ async function current(db: Db, userId: string) {
 export const load: PageServerLoad = async (event) => {
   const db = event.locals.db();
   const userId = await requireUserId(event);
+  await leaveClose(event.locals.db(), userId);
   const [open, history] = await Promise.all([current(db, userId), netWorthHistory(db, userId)]);
   return { month: open?.month ?? null, lines: open?.lines ?? [], history: history.reverse() };
 };
@@ -30,6 +32,7 @@ export const actions: Actions = {
   confirmar: async (event) => {
     const db = event.locals.db();
     const userId = await requireUserId(event);
+    await leaveClose(event.locals.db(), userId);
     const open = await current(db, userId);
     if (!open) redirect(303, '/cierre');
     const form = await event.request.formData();

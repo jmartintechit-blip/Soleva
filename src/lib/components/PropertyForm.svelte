@@ -10,6 +10,8 @@
   // its mortgage is optional and apart. Where it is: municipality and m², never the address.
   interface Props {
     view: PropertyView | null;
+    // A home from v0 without its details: the form empty, with its name («Completa sus datos»).
+    bare?: { id: string; name: string } | null;
     debts: { id: string; name: string; cents: number }[];
     fromAlta: boolean;
     form: {
@@ -19,7 +21,7 @@
       info?: PlaceInfo | null;
     } | null;
   }
-  let { view, debts, fromAlta, form }: Props = $props();
+  let { view, bare = null, debts, fromAlta, form }: Props = $props();
 
   const GROWTH = [0, 100, 200, 300, 400, 500];
   const euros = (cents: number) => formatEuros(cents);
@@ -29,7 +31,7 @@
   // What was typed comes back after a failed save; otherwise the property's own, or the defaults.
   const start = untrack(() => form?.values ?? null);
   const v0 = untrack(() => view);
-  let name = $state(start?.name ?? v0?.name ?? '');
+  let name = $state(start?.name ?? v0?.name ?? untrack(() => bare?.name) ?? '');
   let kind = $state(start?.kind ?? v0?.kind ?? 'habitual');
   const placeName = (p: Place) => `${p.name} (${p.province})`;
   let placeText = $state(start?.municipio ?? (v0 ? placeName(v0.info.place) : ''));
@@ -355,11 +357,13 @@
           sabes más, pon tu valor.</span
         >
         {#if errors.form}<span class="err" role="alert">{errors.form}</span>{/if}
-        <button class="sv-btn sv-btn--primary save">{view ? 'Guardar' : 'Añadir vivienda'}</button>
+        <button class="sv-btn sv-btn--primary save"
+          >{view || bare ? 'Guardar' : 'Añadir vivienda'}</button
+        >
       </div>
     </div>
   </form>
-  {#if view?.canEdit}<GiveUp id={view.id} />{/if}
+  {#if view?.canEdit}<GiveUp id={view.id} />{:else if bare}<GiveUp id={bare.id} />{/if}
 </div>
 
 <style>

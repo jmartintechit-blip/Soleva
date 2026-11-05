@@ -10,6 +10,9 @@ declare global {
       mail: (email: Email) => Promise<void>;
       // Work that outlives the response (data streamed to the page): the pool waits for it.
       defer: <T>(work: Promise<T>) => Promise<T>;
+      // Asked once per request (session.ts).
+      session?: ReturnType<Auth['api']['getSession']>;
+      userId?: Promise<string>;
     }
   }
 }

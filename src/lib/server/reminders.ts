@@ -12,8 +12,19 @@ export const reminderEmail = (to: string, month: Month, url: string): Email => {
   };
 };
 
+// On the ledger (B12 tarea 11) there is no month to close: once a month, a nudge to square the
+// accounts against the bank's figures.
+export const cuadreEmail = (to: string, url: string): Email => ({
+  to,
+  subject: 'Cuadra tus cuentas en Soleva',
+  text: `Soleva lleva tus saldos sola con tus reglas y planes. Una vez al mes, compáralos con lo que dice tu banco y cuadra lo que no coincida en menos de un minuto:
+${url}/cuentas
+
+Puedes cambiar el día de este aviso o desactivarlo en Ajustes.`,
+});
+
 // Today's reminders (YYYY-MM-DD, Spain): users whose day it is, with a live account and a month
-// still open, not yet reminded about it. Returns how many went out.
+// still open (on the ledger, this month), not yet reminded about it. Returns how many went out.
 // shortcut: one email at a time inside one cron run; batch with Resend's batch API past ~100 users.
 export async function sendReminders(
   db: Db,
@@ -26,8 +37,10 @@ export async function sendReminders(
     email: string;
     last: Month | null;
     reminded: Month | null;
+    ledger: boolean;
   }>(
     `select u.id, u.email,
+       exists (select 1 from engine_state e where e.user_id = u.id) as ledger,
        (select to_char(max(c.month), 'YYYY-MM') from month_close c
          where c.user_id = u.id and c.status = 'confirmado') as last,
        to_char(s.reminded_month, 'YYYY-MM') as reminded
@@ -38,9 +51,10 @@ export async function sendReminders(
   );
   let sent = 0;
   for (const u of due) {
-    const month = monthToClose(today, u.last ?? undefined);
+    // On the ledger, once in the current month; in v0, the month still to close.
+    const month = u.ledger ? today.slice(0, 7) : monthToClose(today, u.last ?? undefined);
     // Days 1–10 with last month closed: the current one has barely begun, nothing is pending.
-    const early = month === today.slice(0, 7) && Number(today.slice(8, 10)) <= 10;
+    const early = !u.ledger && month === today.slice(0, 7) && Number(today.slice(8, 10)) <= 10;
     if (!month || early || u.reminded === month) continue;
     // Marked first: a failed send is not retried, never doubled.
     await db.query(
@@ -48,7 +62,7 @@ export async function sendReminders(
        on conflict (user_id) do update set reminded_month = $2, updated_at = now()`,
       [u.id, `${month}-01`],
     );
-    await mail(reminderEmail(u.email, month, url));
+    await mail(u.ledger ? cuadreEmail(u.email, url) : reminderEmail(u.email, month, url));
     sent++;
   }
   return sent;

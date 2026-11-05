@@ -1,3 +1,4 @@
+import { redirect } from '@sveltejs/kit';
 import { type Month, addMonths } from '#lib/engine/dates.ts';
 import { type Rule, accrue, applyRules } from '#lib/engine/rules.ts';
 import { type MoneyAccount, listAccounts } from './accounts.ts';
@@ -157,3 +158,10 @@ export const netWorthHistory = (db: Db, userId: string) =>
      from net_worth_monthly where user_id = $1 order by month`,
     [userId],
   );
+
+// On the ledger the month close is gone (B12 tarea 11): Soleva keeps the balances itself and the
+// accounts are squared in the cuadre, from Cuentas. Its pages send there.
+export async function leaveClose(db: Db, userId: string) {
+  const [ledger] = await db.query(`select 1 from engine_state where user_id = $1`, [userId]);
+  if (ledger) redirect(303, '/cuentas');
+}

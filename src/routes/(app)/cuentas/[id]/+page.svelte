@@ -1,5 +1,6 @@
 <script lang="ts">
   import { formatEuros } from '#lib/engine/money.ts';
+  import GiveUp from '#lib/components/GiveUp.svelte';
   import { KIND_LABEL } from '#lib/labels.ts';
   import Form from './Form.svelte';
   import type { PageProps } from './$types';
@@ -167,7 +168,7 @@
   <Form {data} {form} />
 {:else}
   {@const kind = KIND_LABEL[v.account.kind as keyof typeof KIND_LABEL] ?? v.account.kind}
-  <div class="page">
+  <div class="page" class:bare={data.bare?.canEdit}>
     <header class="top">
       <a class="back" href="/inicio" aria-label="Volver a Inicio">
         <svg
@@ -217,6 +218,28 @@
             : ''}</span
         >
       </section>
+
+      {#if data.bare?.canEdit}
+        <a class="sv-card complete f1" href="/cuentas/{data.bare.id}/{data.bare.page}">
+          <span class="grow"
+            ><span class="complete-title">Completa sus datos</span><span class="sv-muted small"
+              >{data.bare.page === 'inmueble'
+                ? 'Con el municipio y los m², su valor se actualiza solo. Ahora se queda en lo que pusiste.'
+                : 'Con el modelo y la matriculación, su valor baja con los años. Ahora se queda en lo que pusiste.'}</span
+            ></span
+          >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg
+          >
+        </a>
+      {/if}
 
       <div class="buttons phone f1">
         <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/producto"
@@ -348,6 +371,8 @@
       {/each}
     </section>
 
+    {#if data.bare?.canEdit}<div class="give-up"><GiveUp id={data.bare.id} /></div>{/if}
+
     <p class="sv-legal legal">
       {lastPrice ? `Precios de cierre del ${day(lastPrice)} · ` : ''}Rentabilidad, no
       recomendaciones
@@ -356,6 +381,23 @@
 {/if}
 
 <style>
+  .complete {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 44px;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .complete .grow {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+  }
+  .complete-title {
+    font-weight: 600;
+  }
   h1,
   h2,
   p {
@@ -666,6 +708,17 @@
     }
     .cash {
       grid-template-columns: minmax(0, 1fr) auto !important;
+    }
+    .page.bare {
+      grid-template-areas:
+        'top top'
+        'pos main'
+        'pos moves'
+        'give-up give-up'
+        'legal legal';
+    }
+    .give-up {
+      grid-area: give-up;
     }
     .legal {
       grid-area: legal;

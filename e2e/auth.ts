@@ -46,5 +46,10 @@ export async function signIn(page: Page) {
   await setCode(EMAIL, CODE);
   await page.getByLabel('Código').fill(CODE);
   await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page).toHaveURL(/\/inicio$/);
+  // On entry a new user goes to the ledger with nothing in yet: the Alta inicial.
+  await expect(page).toHaveURL(/\/alta$/);
+  // Back to before the cut-over, so a test can set up v0 data first (that cut-over only wrote the
+  // engine state and today's empty day). The next page of the app moves the user again, with it.
+  await sql()`delete from user_day where user_id = (select id from "user" where email = ${EMAIL})`;
+  await sql()`delete from engine_state where user_id = (select id from "user" where email = ${EMAIL})`;
 }

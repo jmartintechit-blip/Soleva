@@ -11,6 +11,9 @@ test('alerts: the user’s own numbers, a counter in the sidebar, hidden on requ
   const [{ id }] = await db`select id from "user" where email = ${EMAIL}`;
   const [acc] = await db`insert into money_account (user_id, name, kind, balance_cents)
     values (${id}, 'Bróker', 'broker', 0) returning id`;
+  // The way in moves the user to the ledger and runs it, which resolves the alerts it does not
+  // find: the alert goes in after it.
+  await page.goto('/cuentas');
   await db`insert into alert (user_id, kind, account_id, day, dedupe_key, detail)
     values (${id}, 'plan_supera', ${acc!.id}, '2026-11-02', 'plan_supera:r1',
             ${{ each: 36000, frequency: 'semanal', spend: 156000, inflow: 150000, ruleId: 'r1' }})`;

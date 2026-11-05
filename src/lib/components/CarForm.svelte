@@ -17,11 +17,13 @@
   }
   interface Props {
     view: View | null;
+    // A car from v0 without its details: the form empty, with its name («Completa sus datos»).
+    bare?: { id: string; name: string } | null;
     today: string;
     fromAlta: boolean;
     form: { values?: Record<string, string>; errors?: Record<string, string> } | null;
   }
-  let { view, today, fromAlta, form }: Props = $props();
+  let { view, bare = null, today, fromAlta, form }: Props = $props();
 
   const eur = (cents: number) => formatEuros(cents);
   // «1.498 cc» on one line.
@@ -29,7 +31,7 @@
   const v0 = untrack(() => view);
   const sent = untrack(() => form?.values ?? null);
   const car = v0?.car ?? null;
-  let name = $state(sent?.name ?? v0?.name ?? 'Coche');
+  let name = $state(sent?.name ?? v0?.name ?? untrack(() => bare?.name) ?? 'Coche');
   let model = $state<VehicleModel | null>(car?.model ?? null);
   let registered = $state(sent?.matriculacion ?? car?.firstRegistration ?? '');
   let own = $state(sent ? !!sent.mio : !!car?.own);
@@ -57,7 +59,7 @@
     model = m;
     found = [];
     q = '';
-    if (!view || name === 'Coche')
+    if ((!view && !bare) || name === 'Coche')
       name = `${m.brand.charAt(0)}${m.brand.slice(1).toLowerCase()} ${m.model}`.slice(0, 60);
     value();
   }
@@ -250,11 +252,13 @@
           >Soleva baja el valor cada año con la tabla nueva de Hacienda (o desde tu valor, al mismo
           ritmo).</span
         >
-        <button class="sv-btn sv-btn--primary save">{view ? 'Guardar' : 'Añadir coche'}</button>
+        <button class="sv-btn sv-btn--primary save"
+          >{view || bare ? 'Guardar' : 'Añadir coche'}</button
+        >
       </div>
     </div>
   </form>
-  {#if view?.canEdit}<GiveUp id={view.id} />{/if}
+  {#if view?.canEdit}<GiveUp id={view.id} />{:else if bare}<GiveUp id={bare.id} />{/if}
 </div>
 
 <style>

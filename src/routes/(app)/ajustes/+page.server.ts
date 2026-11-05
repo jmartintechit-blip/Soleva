@@ -9,11 +9,13 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async (event) => {
   const userId = await requireUserId(event);
   const db = event.locals.db();
-  const [{ assumptions }, reminder] = await Promise.all([
+  const [{ assumptions }, reminder, ledger] = await Promise.all([
     getSettings(db, userId),
     getReminder(db, userId),
+    db.query(`select 1 from engine_state where user_id = $1`, [userId]),
   ]);
-  return { assumptions, reminder };
+  // On the ledger the reminder is the monthly cuadre's, not the month close's.
+  return { assumptions, reminder, ledger: ledger.length > 0 };
 };
 
 export const actions: Actions = {

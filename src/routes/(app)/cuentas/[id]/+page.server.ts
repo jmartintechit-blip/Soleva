@@ -10,6 +10,7 @@ import {
   updateAccount,
 } from '#lib/server/accounts.ts';
 import { loadAccountView } from '#lib/server/account-view.ts';
+import { bareAsset } from '#lib/server/goods.ts';
 import { closedOn } from '#lib/server/removal.ts';
 import { today } from '#lib/server/plan.ts';
 import { fieldErrors, requireUserId } from '#lib/server/session.ts';
@@ -20,10 +21,15 @@ const NEW = 'nueva';
 
 export const load: PageServerLoad = async (event) => {
   const userId = await requireUserId(event);
-  if (event.params.id === NEW) return { view: null, account: null };
   const db = event.locals.db();
   // On the ledger: the account's page (b11/NCuenta); before the cut-over, its v0 form.
   const [ledger] = await db.query(`select 1 from engine_state where user_id = $1`, [userId]);
+  // A new account on the ledger goes in through the Alta inicial (it opens its ledger there): v0's
+  // form would leave it out of net worth.
+  if (event.params.id === NEW) {
+    if (ledger) redirect(303, '/alta');
+    return { view: null, account: null, bare: null };
+  }
   if (ledger) {
     const view = await loadAccountView(db, userId, event.params.id, today());
     if (!view) error(404, 'No encontrada');
@@ -43,11 +49,15 @@ export const load: PageServerLoad = async (event) => {
     // So do a mortgage and a loan (b12/RDeuda).
     if (['deuda_hipoteca', 'deuda_prestamo'].includes(view.account.kind))
       redirect(303, `/cuentas/${view.account.id}/deuda`);
-    return { view, account: null };
+    // A home or car from v0 without its details: «Completa sus datos», and the baja and delete.
+    const bare = ['inmueble', 'vehiculo'].includes(view.account.kind)
+      ? await bareAsset(db, userId, view.account.id)
+      : null;
+    return { view, account: null, bare };
   }
   const account = await getAccount(db, userId, event.params.id);
   if (!account) error(404, 'No encontrada');
-  return { view: null, account };
+  return { view: null, account, bare: null };
 };
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
@@ -80,6 +90,8 @@ export const actions: Actions = {
       });
     }
     const db = event.locals.db();
+    const [ledger] = await db.query(`select 1 from engine_state where user_id = $1`, [userId]);
+    if (ledger) redirect(303, event.params.id === NEW ? '/alta' : `/cuentas/${event.params.id}`);
     if (event.params.id === NEW) await createAccount(db, userId, parsed.data);
     else if (!(await updateAccount(db, userId, event.params.id, parsed.data)))
       error(404, 'No encontrada');

@@ -1,6 +1,13 @@
 import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { runUser } from './engine-run.ts';
-import { createGood, goodView, readGoodForm, updateGood } from './goods.ts';
+import {
+  bareAsset,
+  completeGood,
+  createGood,
+  goodView,
+  readGoodForm,
+  updateGood,
+} from './goods.ts';
 import { today } from './plan.ts';
 import { closedOn } from './removal.ts';
 import { requireUserId } from './session.ts';
@@ -15,12 +22,23 @@ export async function loadGood(event: RequestEvent, kind: 'vehiculo' | 'bien') {
   if (!id) {
     const [ledger] = await db.query(`select 1 from engine_state where user_id = $1`, [userId]);
     if (!ledger) redirect(303, '/cuentas');
-    return { view: null, today: day, fromAlta: event.url.searchParams.get('volver') === 'alta' };
+    return {
+      view: null,
+      bare: null,
+      today: day,
+      fromAlta: event.url.searchParams.get('volver') === 'alta',
+    };
   }
   const view = await goodView(db, userId, id, day);
+  if (!view && kind === 'vehiculo') {
+    // A car from v0 without its details («Completa sus datos»): RCoche empty, with its name.
+    const bare = await bareAsset(db, userId, id);
+    if (bare?.page !== 'coche' || !bare.canEdit) error(404, 'No encontrada');
+    return { view: null, bare, today: day, fromAlta: false };
+  }
   if (!view || (kind === 'vehiculo') !== !!view.car) error(404, 'No encontrada');
   if (await closedOn(db, id)) redirect(303, `/cuentas/${id}/baja`);
-  return { view, today: day, fromAlta: false };
+  return { view, bare: null, today: day, fromAlta: false };
 }
 
 export async function saveGood(event: RequestEvent, kind: 'vehiculo' | 'bien') {
@@ -31,7 +49,15 @@ export async function saveGood(event: RequestEvent, kind: 'vehiculo' | 'bien') {
   const db = event.locals.db();
   const id = event.params.id;
   let target = id;
-  if (id) {
+  if (id && kind === 'vehiculo' && (await bareAsset(db, userId, id))) {
+    const done = await completeGood(db, userId, id, day, read.input);
+    if (!done) error(404, 'No encontrada');
+    if (done === 'sin_valor')
+      return fail(400, {
+        values: read.values,
+        errors: { valor: 'No hay valor para ese modelo: pon tu valor' },
+      });
+  } else if (id) {
     const view = await goodView(db, userId, id, day);
     if (!view || (kind === 'vehiculo') !== !!view.car) error(404, 'No encontrada');
     if (!(await updateGood(db, userId, id, day, read.input))) error(404, 'No encontrada');

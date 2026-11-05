@@ -4,6 +4,32 @@ Formato: [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versiones:
 
 ## [Sin publicar]
 
+## [0.12.0] - 2026-11-05
+
+### Añadido
+
+- Reglas que generan movimientos: transferencias, ingresos, gastos y cuotas, de semanal a anual o una sola vez, con fecha de inicio y de fin. Una regla puede ser de un inmueble, coche o bien y se para con su baja.
+- Planes de inversión con varios productos, día y cuenta, la media de cada mes, aviso si pasa de lo que entra y qué hacer sin efectivo suficiente.
+- Cuenta remunerada con tramos, promoción, día de pago, base 365 o 360 y retención; los intereses brutos, la retención y los netos del mes.
+- Hipotecas y préstamos, fijos o variables (Euríbor más diferencial, revisión y suelo), desde lo que te queda por pagar o desde los datos originales: próxima cuota en intereses y capital y cuadro de amortización.
+- Vivienda o inmueble por los m² de su municipio (valor tasado medio del Ministerio de Vivienda, actualizado con el índice de precios de vivienda del INE de su comunidad) o por tu valor, con su hipoteca enlazada y lo que es tuyo de verdad. Nunca pide la dirección.
+- Coche o moto por la tabla de Hacienda (o tu valor) y otros bienes con su pérdida de valor por años.
+- Productos sin precio público con la rentabilidad estimada que pongas tú.
+- Dar de baja un inmueble, coche, bien o deuda desde una fecha («Lo vendí o ya no lo tengo»), con la venta en la cuenta que elijas y la hipoteca liquidada, mantenida o borrada; deshacer la baja; o borrar lo añadido por error.
+- Paso al libro de movimientos al entrar: tus cuentas pasan con el mismo valor, comprobado cuenta a cuenta, y si algo no cuadra no se cambia nada.
+- Recordatorio mensual para cuadrar tus cuentas.
+
+### Cambiado
+
+- El cierre de mes da paso al cuadre: las rutas del cierre llevan a Cuentas.
+- Una cuenta nueva entra siempre por el alta inicial.
+- Un inmueble o vehículo de antes sin sus datos muestra solo «Completa sus datos», sus movimientos, la baja y el borrado, sin los controles de un bróker.
+- Los interruptores apagados tienen un borde visible en los tres temas.
+
+### Corregido
+
+- Una cuenta remunerada abierta el día de pago cuenta el interés de ese primer día.
+
 ## [0.11.0] - 2026-10-31
 
 ### Añadido

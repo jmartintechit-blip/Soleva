@@ -19,7 +19,7 @@ You note once how your money comes in and goes out (salary, contributions, fixed
 
 ## Features
 
-Today (blocks 0 to 6 and 8 to 11):
+Today (blocks 0 to 6 and 8 to 12):
 
 - Public home page with a compound interest calculator in today's euros (3, 6 and 8 % scenarios, 2.5 % inflation).
 - Waitlist with consent and email double opt-in (open).
@@ -29,13 +29,13 @@ Today (blocks 0 to 6 and 8 to 11):
 - Accounts and rules: create, edit, pause, archive and delete; a New rule sheet with templates.
 - Rules and month-by-month projection engine by scenario, with invariant tests.
 - Home and Projection: net worth, history, scenarios, horizon, what-ifs, editable assumptions and the on-track light.
-- Month close: balances proposed from your rules, inline correction, confirmation, history with amendments and an email reminder.
 - Settings: three themes, reminder, export everything as JSON or CSV, end sessions and delete the account for real.
 - Horizonte dark design system with self-hosted fonts.
 - Ledger database (v0.8.0), daily engine (v0.9.0) and data and daily runs (v0.10.0): movements generated every day, interest on the real balance, debts, dividends, valuation, returns, alerts, stock closes, ECB rates, the official Euribor and Hacienda's car tables.
-- New screens on the ledger (v0.11.0): Home with what you put in against what your money made in each period, Alerts, Account with positions and movements, Add product (search with ISIN and exchanges), Reconcile against the real figures and a three-step onboarding. Current users move to them with the new rules (block 12).
+- New screens on the ledger (v0.11.0): Home with what you put in against what your money made in each period, Alerts, Account with positions and movements, Add product (search with ISIN and exchanges), Reconcile against the real figures and a three-step onboarding.
+- Rules and products (v0.12.0): transfers, incomes, expenses and payments that generate movements; investment plans; interest accounts with tiers; fixed or variable mortgages and loans with their schedule; a home by the m² of its municipality with INE's housing price index; a car by Hacienda's table; goods; products without a public price; giving up, undoing it and deleting; and everyone moving to the ledger on the way in, checked account by account. The month close gives way to reconciling, with a monthly reminder.
 
-Coming before the beta: Soleva will keep track of your money on its own, movement by movement. You enter your situation once and every day it generates transfers, your plans' purchases, interest, payments and dividends, and values your holdings.
+Coming before the beta: the projection from your rules, plans, debts and depreciation, and polish (accessibility, performance and an installable app).
 
 ## Stack
 
@@ -65,7 +65,7 @@ npm run dev
 
 ## Status
 
-Under construction: blocks 0 to 6 and 8 to 11 done (v0.11.0), deployed with sign-up closed and the waitlist open. Polish (block 7) moves to the end, on the new screens. See [CHANGELOG.md](CHANGELOG.md).
+Under construction: blocks 0 to 6 and 8 to 12 done (v0.12.0), deployed with sign-up closed and the waitlist open. Polish (block 7) moves to the end, on the new screens. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Roadmap
 
@@ -82,7 +82,7 @@ Under construction: blocks 0 to 6 and 8 to 11 done (v0.11.0), deployed with sign
 | 9 · Daily engine        | Movements generated every day, interest, debts and alerts   |
 | 10 · Data               | Prices, exchange rates, Euribor and Hacienda's car tables   |
 | 11 · Core screens       | New Home, accounts with holdings, reconciling and alerts    |
-| 12 · Rules and products | Investment plans, debts, car and goods                      |
+| 12 · Rules and products | Plans, debts, home, car, goods and moving to the ledger     |
 | 13 · Projection v2      | Projection from rules, plans, debts and depreciation        |
 | 14 · Polish             | Accessibility, performance and installable app (was 7)      |
 

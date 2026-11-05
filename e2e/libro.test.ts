@@ -50,6 +50,12 @@ test('the way in: v0 to the ledger with the same net worth, and the month close 
   await expect(complete).toHaveAttribute('href', `/cuentas/${flat!.id}/inmueble`);
   await expect(page.getByRole('link', { name: 'Lo vendí o ya no lo tengo' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Borrar, lo añadí por error' })).toBeVisible();
+  // None of a broker's controls: no products, no cuadre, no cash line.
+  await expect(page.getByRole('link', { name: 'Añadir producto' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Cuadrar' })).toHaveCount(0);
+  await expect(page.getByText(/^Efectivo/)).toHaveCount(0);
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  await expect(page.getByText('Últimos movimientos')).toBeVisible();
   await complete.click();
   await expect(page).toHaveURL(new RegExp(`/cuentas/${flat!.id}/inmueble$`));
   await expect(page.getByLabel('Nombre')).toHaveValue('Piso');

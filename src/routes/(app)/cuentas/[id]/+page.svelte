@@ -10,6 +10,9 @@
   // b11/NCuenta (phone, with tabs) and NCuentaEscritorio (two columns, no tabs).
   let tab = $state<'pos' | 'mov'>('pos');
   const v = $derived(data.view);
+  // A home or car from v0 without its details: none of a broker's controls (products, cuadre,
+  // cash), only «Completa sus datos», its movements and, at the foot, the baja and the delete.
+  const bare = $derived(data.bare !== null);
 
   const eur = (cents: number, sign = false) =>
     `${sign && cents > 0 ? '+' : ''}${formatEuros(cents, { withCents: true })}`;
@@ -168,7 +171,7 @@
   <Form {data} {form} />
 {:else}
   {@const kind = KIND_LABEL[v.account.kind as keyof typeof KIND_LABEL] ?? v.account.kind}
-  <div class="page" class:bare={data.bare?.canEdit}>
+  <div class="page" class:bare>
     <header class="top">
       <a class="back" href="/inicio" aria-label="Volver a Inicio">
         <svg
@@ -192,17 +195,21 @@
         >
       </div>
       <span class="spacer phone"></span>
-      <div class="buttons desk">
-        <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/producto"
-          >Añadir producto</a
-        >
-        <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/cuadre">Cuadrar</a>
-        {#if v.account.kind === 'remunerada'}
-          <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/intereses"
-            >Intereses</a
+      {#if !bare}
+        <div class="buttons desk">
+          <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/producto"
+            >Añadir producto</a
           >
-        {/if}
-      </div>
+          <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/cuadre"
+            >Cuadrar</a
+          >
+          {#if v.account.kind === 'remunerada'}
+            <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/intereses"
+              >Intereses</a
+            >
+          {/if}
+        </div>
+      {/if}
     </header>
 
     <div class="main">
@@ -241,17 +248,21 @@
         </a>
       {/if}
 
-      <div class="buttons phone f1">
-        <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/producto"
-          >Añadir producto</a
-        >
-        <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/cuadre">Cuadrar</a>
-        {#if v.account.kind === 'remunerada'}
-          <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/intereses"
-            >Intereses</a
+      {#if !bare}
+        <div class="buttons phone f1">
+          <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/producto"
+            >Añadir producto</a
           >
-        {/if}
-      </div>
+          <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/cuadre"
+            >Cuadrar</a
+          >
+          {#if v.account.kind === 'remunerada'}
+            <a class="sv-btn sv-btn--ghost sv-btn--sm" href="/cuentas/{v.account.id}/intereses"
+              >Intereses</a
+            >
+          {/if}
+        </div>
+      {/if}
 
       {#each v.plans as p (p.id)}
         <section class="plan f2">
@@ -283,76 +294,87 @@
         {/if}
       {/each}
 
-      <div class="tabs phone f2" role="tablist" aria-label="Vista">
-        <button type="button" role="tab" aria-selected={tab === 'pos'} onclick={() => (tab = 'pos')}
-          >Posiciones</button
-        >
-        <button type="button" role="tab" aria-selected={tab === 'mov'} onclick={() => (tab = 'mov')}
-          >Movimientos</button
-        >
-      </div>
-    </div>
-
-    <section class="positions f3" class:hidden={tab !== 'pos'} aria-label="Posiciones">
-      <div class="thead desk" aria-hidden="true">
-        <span>Producto</span><span>Cantidad</span><span>Precio</span><span>Valor</span><span
-          >Ganancia</span
-        >
-      </div>
-      {#each v.positions as p (p.instrumentId)}
-        <div class="pos">
-          <span class="pos-main">
-            <span class="pos-name">{p.name}</span>
-            <span
-              class="small"
-              class:estimate={p.estimate}
-              class:stale={p.stale}
-              class:sv-muted={!p.estimate && !p.stale}
-            >
-              {#if p.estimate}
-                Estimación · {rate(p.rateBp ?? 0)} anual que pusiste tú
-              {:else if p.stale}
-                {p.priceDay
-                  ? `Precio del ${day(p.priceDay)} · sin actualizar`
-                  : 'Sin precio · ponlo tú'}
-              {:else}
-                <span class="phone"
-                  >{units(p.qtyE8)}{unitWord(p.kind)} · {price(p.priceE8, p.currency)}</span
-                >
-              {/if}
-            </span>
-          </span>
-          <span class="num desk">{p.estimate ? '—' : units(p.qtyE8)}</span>
-          <span class="num desk">{p.estimate ? '—' : price(p.priceE8, p.currency)}</span>
-          <span class="pos-right phone-flex">
-            <span class="num" class:sv-neg={p.valueCents < 0}>{eur(p.valueCents)}</span>
-            <span class="small up">{eur(p.gainCents, true)}{share(p.gainCents, p.costCents)}</span>
-          </span>
-          <span class="num desk" class:sv-neg={p.valueCents < 0}>{eur(p.valueCents)}</span>
-          <span class="small up desk gain"
-            >{eur(p.gainCents, true)}{share(p.gainCents, p.costCents)}</span
+      {#if !bare}
+        <div class="tabs phone f2" role="tablist" aria-label="Vista">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'pos'}
+            onclick={() => (tab = 'pos')}>Posiciones</button
           >
-        </div>
-      {/each}
-      {#if v.cash !== 0 || v.interest}
-        <div class="pos cash">
-          <span class="pos-main">
-            <span class="pos-name"
-              >Efectivo{v.interest?.rateBp ? ` · ${rate(v.interest.rateBp)}` : ''}</span
-            >
-            {#if v.interest}<span class="sv-muted small"
-                >Interés de este mes, sobre el saldo de cada día: {eur(v.accrued)}</span
-              >{/if}
-          </span>
-          <span class="pos-right"
-            ><span class="num" class:sv-neg={v.cash < 0}>{eur(v.cash)}</span></span
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'mov'}
+            onclick={() => (tab = 'mov')}>Movimientos</button
           >
         </div>
       {/if}
-    </section>
+    </div>
 
-    <section class="moves f3" class:hidden={tab !== 'mov'} aria-labelledby="movs">
-      <h2 id="movs" class="sv-label desk">Últimos movimientos</h2>
+    {#if !bare}
+      <section class="positions f3" class:hidden={tab !== 'pos'} aria-label="Posiciones">
+        <div class="thead desk" aria-hidden="true">
+          <span>Producto</span><span>Cantidad</span><span>Precio</span><span>Valor</span><span
+            >Ganancia</span
+          >
+        </div>
+        {#each v.positions as p (p.instrumentId)}
+          <div class="pos">
+            <span class="pos-main">
+              <span class="pos-name">{p.name}</span>
+              <span
+                class="small"
+                class:estimate={p.estimate}
+                class:stale={p.stale}
+                class:sv-muted={!p.estimate && !p.stale}
+              >
+                {#if p.estimate}
+                  Estimación · {rate(p.rateBp ?? 0)} anual que pusiste tú
+                {:else if p.stale}
+                  {p.priceDay
+                    ? `Precio del ${day(p.priceDay)} · sin actualizar`
+                    : 'Sin precio · ponlo tú'}
+                {:else}
+                  <span class="phone"
+                    >{units(p.qtyE8)}{unitWord(p.kind)} · {price(p.priceE8, p.currency)}</span
+                  >
+                {/if}
+              </span>
+            </span>
+            <span class="num desk">{p.estimate ? '—' : units(p.qtyE8)}</span>
+            <span class="num desk">{p.estimate ? '—' : price(p.priceE8, p.currency)}</span>
+            <span class="pos-right phone-flex">
+              <span class="num" class:sv-neg={p.valueCents < 0}>{eur(p.valueCents)}</span>
+              <span class="small up">{eur(p.gainCents, true)}{share(p.gainCents, p.costCents)}</span
+              >
+            </span>
+            <span class="num desk" class:sv-neg={p.valueCents < 0}>{eur(p.valueCents)}</span>
+            <span class="small up desk gain"
+              >{eur(p.gainCents, true)}{share(p.gainCents, p.costCents)}</span
+            >
+          </div>
+        {/each}
+        {#if v.cash !== 0 || v.interest}
+          <div class="pos cash">
+            <span class="pos-main">
+              <span class="pos-name"
+                >Efectivo{v.interest?.rateBp ? ` · ${rate(v.interest.rateBp)}` : ''}</span
+              >
+              {#if v.interest}<span class="sv-muted small"
+                  >Interés de este mes, sobre el saldo de cada día: {eur(v.accrued)}</span
+                >{/if}
+            </span>
+            <span class="pos-right"
+              ><span class="num" class:sv-neg={v.cash < 0}>{eur(v.cash)}</span></span
+            >
+          </div>
+        {/if}
+      </section>
+    {/if}
+
+    <section class="moves f3" class:hidden={!bare && tab !== 'mov'} aria-labelledby="movs">
+      <h2 id="movs" class="sv-label" class:desk={!bare}>Últimos movimientos</h2>
       {#each lines as m, i (m.key)}
         <div class="move" class:extra={i >= 5}>
           <span class="mday">{day(m.day)}</span>
@@ -383,6 +405,8 @@
 <style>
   .complete {
     display: flex;
+    /* .sv-card stacks its content: here the chevron goes beside the text. */
+    flex-direction: row;
     align-items: center;
     gap: var(--space-3);
     min-height: 44px;
@@ -712,8 +736,7 @@
     .page.bare {
       grid-template-areas:
         'top top'
-        'pos main'
-        'pos moves'
+        'main moves'
         'give-up give-up'
         'legal legal';
     }

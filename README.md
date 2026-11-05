@@ -19,7 +19,7 @@ Apuntas una vez cómo entra y sale tu dinero (nómina, aportaciones, gastos fijo
 
 ## Funcionalidades
 
-Hoy (bloques 0 a 6 y 8 a 11):
+Hoy (bloques 0 a 6 y 8 a 12):
 
 - Portada pública con calculadora de interés compuesto en euros de hoy (escenarios 3, 6 y 8 % e inflación 2,5 %).
 - Lista de espera con consentimiento y doble confirmación por email (abierta).
@@ -29,13 +29,13 @@ Hoy (bloques 0 a 6 y 8 a 11):
 - Cuentas y reglas: crear, editar, pausar, archivar y borrar; hoja «Nueva regla» con plantillas.
 - Motor de reglas y proyección mes a mes por escenario, con tests de invariantes.
 - Inicio y Proyección: patrimonio, evolución, escenarios, horizonte, «¿qué pasa si…?», supuestos editables y semáforo.
-- Cierre de mes: saldos propuestos por tus reglas, corrección en línea, confirmación, histórico con enmiendas y recordatorio por email.
 - Ajustes: tres temas, recordatorio, exportar todo en JSON o CSV, cerrar sesiones y borrar la cuenta de verdad.
 - Sistema de diseño Horizonte, oscuro, con fuentes alojadas en el propio sitio.
 - Base de datos del libro de movimientos (v0.8.0), motor diario (v0.9.0) y datos y ejecución diaria (v0.10.0): movimientos generados cada día, intereses sobre el saldo real, deudas, dividendos, valoración, rentabilidad, alertas, cierres de bolsa, tipos del BCE, Euríbor oficial y tablas de Hacienda.
-- Pantallas nuevas sobre el libro (v0.11.0): Inicio con lo que aportaste frente a lo que ganó tu dinero por periodo, Alertas, Cuenta con posiciones y movimientos, Añadir producto (buscador con ISIN y bolsas), Cuadre con lo real y Alta inicial en tres pasos. Los usuarios actuales pasarán a ellas con las reglas nuevas (bloque 12).
+- Pantallas nuevas sobre el libro (v0.11.0): Inicio con lo que aportaste frente a lo que ganó tu dinero por periodo, Alertas, Cuenta con posiciones y movimientos, Añadir producto (buscador con ISIN y bolsas), Cuadre con lo real y Alta inicial en tres pasos.
+- Reglas y productos (v0.12.0): transferencias, ingresos, gastos y cuotas que generan movimientos; planes de inversión; cuenta remunerada con tramos; hipotecas y préstamos fijos o variables con su cuadro; vivienda por los m² de su municipio con el índice de precios del INE; coche por la tabla de Hacienda; bienes; productos sin precio público; baja, «Deshacer la baja» y borrado; y el paso de todos al libro al entrar, comprobado cuenta a cuenta. El cierre de mes da paso al cuadre, con un recordatorio mensual.
 
-En camino antes de la beta: Soleva llevará el dinero sola, movimiento a movimiento. Metes tu situación una vez y cada día genera transferencias, compras de tus planes, intereses, cuotas y dividendos, y valora tus posiciones.
+En camino antes de la beta: la proyección desde tus reglas, planes, deudas y depreciaciones, y el pulido (accesibilidad, rendimiento y app instalable).
 
 ## Stack
 
@@ -65,7 +65,7 @@ npm run dev
 
 ## Estado
 
-En construcción: bloques 0 a 6 y 8 a 11 cerrados (v0.11.0), desplegado con el registro cerrado y la lista de espera abierta. El pulido (bloque 7) pasa al final, sobre las pantallas nuevas. Ver [CHANGELOG.md](CHANGELOG.md).
+En construcción: bloques 0 a 6 y 8 a 12 cerrados (v0.12.0), desplegado con el registro cerrado y la lista de espera abierta. El pulido (bloque 7) pasa al final, sobre las pantallas nuevas. Ver [CHANGELOG.md](CHANGELOG.md).
 
 ## Hoja de ruta
 
@@ -82,7 +82,7 @@ En construcción: bloques 0 a 6 y 8 a 11 cerrados (v0.11.0), desplegado con el r
 | 9 · Motor diario        | Movimientos generados cada día, intereses, deudas y alertas |
 | 10 · Datos              | Precios, tipos de cambio, Euríbor y tablas de Hacienda      |
 | 11 · Pantallas núcleo   | Inicio nuevo, cuentas con posiciones, cuadre y alertas      |
-| 12 · Reglas y productos | Planes de inversión, deudas, coche y bienes                 |
+| 12 · Reglas y productos | Planes, deudas, vivienda, coche, bienes y paso al libro     |
 | 13 · Proyección v2      | Proyección desde reglas, planes, deudas y depreciaciones    |
 | 14 · Pulido             | Accesibilidad, rendimiento y app instalable (antes, 7)      |
 

@@ -182,8 +182,16 @@ describe('projectLedger', () => {
     expect(plan.at(-1)!.outstandingCents).toBe(0);
     const steps = projectLedger(everything(), '2026-11-05', 240, 'base');
     // Step k holds payment k − 1 (the first one is on 5 December, in step 1).
-    expect(steps[36]!.payments.hip).toEqual({ paymentCents: 59_764, rateBp: 260 });
-    expect(steps[37]!.payments.hip).toEqual({ paymentCents: 61_141, rateBp: 300 });
+    expect(steps[36]!.payments.hip).toEqual({
+      day: '2029-11-05',
+      paymentCents: 59_764,
+      rateBp: 260,
+    });
+    expect(steps[37]!.payments.hip).toEqual({
+      day: '2029-12-05',
+      paymentCents: 61_141,
+      rateBp: 300,
+    });
     expect(steps[180]!.byAccount.hip).toBe(0);
     expect(steps[181]!.payments).toEqual({});
   });

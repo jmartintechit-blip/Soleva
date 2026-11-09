@@ -4,6 +4,27 @@ Formato: [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). Versiones:
 
 ## [Sin publicar]
 
+## [0.13.0] - 2026-11-09
+
+### Añadido
+
+- Proyección v2 desde lo que tienes hoy en el libro: inversiones a su escenario, remuneradas con sus tramos, promoción y retención, inmuebles con su revalorización, coche por la tabla de Hacienda, bienes por su curva, productos estimados a su rentabilidad y deudas con su cuadro (las variables y mixtas se revisan con el Euríbor de hoy).
+- Horizonte de 5, 10, 20 o 30 años, euros de hoy o de entonces y escenario prudente, base u optimista, todo en vivo; línea con banda prudente–optimista e hitos.
+- «De dónde sale» (lo que tienes hoy, lo que aportas, la rentabilidad, lo que pierde valor, lo que cuestan las deudas y, en euros de hoy, lo que se come la inflación), «Por tipo» y «Lo que va a pasar»: fin de una promoción, revisión de la hipoteca con la cuota nueva, deuda pagada y fin de una regla.
+- Supuesto «Tus ingresos y gastos»: cuánto suben al año los ingresos y gastos de tus reglas (por defecto, la inflación).
+- «Cómo voy»: fija la proyección como tu plan y compara lo previsto para hoy con lo que tienes, con el porqué en tres filas; también como aviso en Inicio.
+- «¿Qué pasa si…?»: aportar más cada mes, pausar un plan o un gasto único, con la proyección de siempre como línea fantasma y un atajo a la regla ya rellena.
+- Amortizar o invertir: el mismo dinero en dos columnas iguales (intereses que te ahorras, fecha de pagada o cuota nueva, lo que valdría invertido y tu patrimonio), sin recomendar ninguna.
+- «Mi plan» en la exportación de datos.
+
+### Cambiado
+
+- La proyección anterior (por saldos y reglas v0) se retira.
+
+### Seguridad
+
+- Dependencia de desarrollo `minimatch` actualizada a 11.0.5.
+
 ## [0.12.0] - 2026-11-05
 
 ### Añadido
@@ -195,7 +216,9 @@ Las pantallas nuevas son para quien ya está en el libro de movimientos; los usu
 - Prueba E2E de entrada con Playwright, en CI sobre una rama temporal de Neon copiada de dev.
 - Primer despliegue en Cloudflare Workers.
 
-[Sin publicar]: https://github.com/jmartintechit-blip/soleva/compare/v0.11.0...HEAD
+[Sin publicar]: https://github.com/jmartintechit-blip/soleva/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/jmartintechit-blip/soleva/releases/tag/v0.13.0
+[0.12.0]: https://github.com/jmartintechit-blip/soleva/releases/tag/v0.12.0
 [0.11.0]: https://github.com/jmartintechit-blip/soleva/releases/tag/v0.11.0
 [0.10.0]: https://github.com/jmartintechit-blip/soleva/releases/tag/v0.10.0
 [0.9.0]: https://github.com/jmartintechit-blip/soleva/releases/tag/v0.9.0

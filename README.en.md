@@ -15,7 +15,7 @@ You note once how your money comes in and goes out (salary, contributions, fixed
 
 > Soleva does not move money, does not connect to your bank and does not recommend products. Every projection is an estimate, not advice.
 
-<p align="center"><img src="docs/portada.png" width="280" alt="Soleva Home on mobile, with test data"></p>
+<p align="center"><img src="docs/portada.png" width="280" alt="Soleva Projection on mobile, with test data"></p>
 
 ## Features
 
@@ -34,8 +34,9 @@ Today (blocks 0 to 6 and 8 to 12):
 - Ledger database (v0.8.0), daily engine (v0.9.0) and data and daily runs (v0.10.0): movements generated every day, interest on the real balance, debts, dividends, valuation, returns, alerts, stock closes, ECB rates, the official Euribor and Hacienda's car tables.
 - New screens on the ledger (v0.11.0): Home with what you put in against what your money made in each period, Alerts, Account with positions and movements, Add product (search with ISIN and exchanges), Reconcile against the real figures and a three-step onboarding.
 - Rules and products (v0.12.0): transfers, incomes, expenses and payments that generate movements; investment plans; interest accounts with tiers; fixed or variable mortgages and loans with their schedule; a home by the m² of its municipality with INE's housing price index; a car by Hacienda's table; goods; products without a public price; giving up, undoing it and deleting; and everyone moving to the ledger on the way in, checked account by account. The month close gives way to reconciling, with a monthly reminder.
+- Projection v2 (v0.13.0): from what you have today in the ledger, your rules, plans, debts, homes, cars and goods, 5, 10, 20 or 30 years ahead, in today's euros or euros of then, with a cautious–optimistic band, where each euro comes from, by type and what is coming (end of a promotion, mortgage review, debt paid off). «How am I» against your fixed plan (also on Home), what-ifs (contribute more, pause a plan, a one-off expense) and pay off or invest, in two columns without recommending either.
 
-Coming before the beta: the projection from your rules, plans, debts and depreciation, and polish (accessibility, performance and an installable app).
+Coming before the beta: polish (accessibility, performance and an installable app).
 
 ## Stack
 
@@ -65,7 +66,7 @@ npm run dev
 
 ## Status
 
-Under construction: blocks 0 to 6 and 8 to 12 done (v0.12.0), deployed with sign-up closed and the waitlist open. Polish (block 7) moves to the end, on the new screens. See [CHANGELOG.md](CHANGELOG.md).
+Under construction: blocks 0 to 6 and 8 to 13 done (v0.13.0), deployed with sign-up closed and the waitlist open. Polish (block 7) moves to the end, on the new screens. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Roadmap
 

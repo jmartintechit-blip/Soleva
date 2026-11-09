@@ -15,7 +15,7 @@ Apuntas una vez cómo entra y sale tu dinero (nómina, aportaciones, gastos fijo
 
 > Soleva no mueve dinero, no se conecta a tu banco y no recomienda productos. Toda proyección es una estimación, no asesoramiento.
 
-<p align="center"><img src="docs/portada.png" width="280" alt="Inicio de Soleva en móvil, con datos de prueba"></p>
+<p align="center"><img src="docs/portada.png" width="280" alt="Proyección de Soleva en móvil, con datos de prueba"></p>
 
 ## Funcionalidades
 
@@ -34,8 +34,9 @@ Hoy (bloques 0 a 6 y 8 a 12):
 - Base de datos del libro de movimientos (v0.8.0), motor diario (v0.9.0) y datos y ejecución diaria (v0.10.0): movimientos generados cada día, intereses sobre el saldo real, deudas, dividendos, valoración, rentabilidad, alertas, cierres de bolsa, tipos del BCE, Euríbor oficial y tablas de Hacienda.
 - Pantallas nuevas sobre el libro (v0.11.0): Inicio con lo que aportaste frente a lo que ganó tu dinero por periodo, Alertas, Cuenta con posiciones y movimientos, Añadir producto (buscador con ISIN y bolsas), Cuadre con lo real y Alta inicial en tres pasos.
 - Reglas y productos (v0.12.0): transferencias, ingresos, gastos y cuotas que generan movimientos; planes de inversión; cuenta remunerada con tramos; hipotecas y préstamos fijos o variables con su cuadro; vivienda por los m² de su municipio con el índice de precios del INE; coche por la tabla de Hacienda; bienes; productos sin precio público; baja, «Deshacer la baja» y borrado; y el paso de todos al libro al entrar, comprobado cuenta a cuenta. El cierre de mes da paso al cuadre, con un recordatorio mensual.
+- Proyección v2 (v0.13.0): desde lo que tienes hoy en el libro, tus reglas, planes, deudas, inmuebles, coches y bienes, a 5, 10, 20 o 30 años, en euros de hoy o de entonces, con banda prudente–optimista, de dónde sale cada euro, por tipo y lo que va a pasar (fin de una promoción, revisión de la hipoteca, deuda pagada). «Cómo voy» frente a tu plan fijado (también en Inicio), «¿Qué pasa si…?» (aportar más, pausar un plan, un gasto único) y amortizar o invertir, en dos columnas sin recomendar ninguna.
 
-En camino antes de la beta: la proyección desde tus reglas, planes, deudas y depreciaciones, y el pulido (accesibilidad, rendimiento y app instalable).
+En camino antes de la beta: el pulido (accesibilidad, rendimiento y app instalable).
 
 ## Stack
 
@@ -65,7 +66,7 @@ npm run dev
 
 ## Estado
 
-En construcción: bloques 0 a 6 y 8 a 12 cerrados (v0.12.0), desplegado con el registro cerrado y la lista de espera abierta. El pulido (bloque 7) pasa al final, sobre las pantallas nuevas. Ver [CHANGELOG.md](CHANGELOG.md).
+En construcción: bloques 0 a 6 y 8 a 13 cerrados (v0.13.0), desplegado con el registro cerrado y la lista de espera abierta. El pulido (bloque 7) pasa al final, sobre las pantallas nuevas. Ver [CHANGELOG.md](CHANGELOG.md).
 
 ## Hoja de ruta
 

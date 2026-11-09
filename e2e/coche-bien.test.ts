@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createNeonDb } from '../src/lib/server/db/index.ts';
 import { migrateUserToLedger } from '../src/lib/server/ledger-migration.ts';
-import { today } from '../src/lib/server/plan.ts';
+import { today } from '../src/lib/server/today.ts';
 import { EMAIL, hydrated, resetUser, signIn, sql } from './auth.ts';
 
 // Needs Hacienda's tables in the database (npm run hacienda): the CI's branch is a copy of dev.

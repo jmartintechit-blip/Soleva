@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createNeonDb } from '../src/lib/server/db/index.ts';
 import { migrateUserToLedger } from '../src/lib/server/ledger-migration.ts';
-import { today } from '../src/lib/server/plan.ts';
+import { today } from '../src/lib/server/today.ts';
 import { EMAIL, hydrated, resetUser, signIn, sql } from './auth.ts';
 
 test('Alta inicial: what you have, with the total as you add it, then Inicio', async ({ page }) => {

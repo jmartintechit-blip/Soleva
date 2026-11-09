@@ -3,7 +3,7 @@ import { openAccount } from '../src/lib/server/alta.ts';
 import { createNeonDb } from '../src/lib/server/db/index.ts';
 import { runUser } from '../src/lib/server/engine-run.ts';
 import { migrateUserToLedger } from '../src/lib/server/ledger-migration.ts';
-import { today } from '../src/lib/server/plan.ts';
+import { today } from '../src/lib/server/today.ts';
 import { EMAIL, hydrated, resetUser, signIn, sql } from './auth.ts';
 
 test('Reglas on the ledger: a transfer with what it means, changed, paused', async ({ page }) => {

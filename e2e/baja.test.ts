@@ -4,7 +4,7 @@ import { createNeonDb } from '../src/lib/server/db/index.ts';
 import { runUser } from '../src/lib/server/engine-run.ts';
 import { createGood } from '../src/lib/server/goods.ts';
 import { migrateUserToLedger } from '../src/lib/server/ledger-migration.ts';
-import { today } from '../src/lib/server/plan.ts';
+import { today } from '../src/lib/server/today.ts';
 import { createProperty, openMortgage } from '../src/lib/server/property.ts';
 import { EMAIL, hydrated, resetUser, signIn, sql } from './auth.ts';
 

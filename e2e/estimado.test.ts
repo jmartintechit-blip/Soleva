@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { openAccount } from '../src/lib/server/alta.ts';
 import { createNeonDb } from '../src/lib/server/db/index.ts';
 import { migrateUserToLedger } from '../src/lib/server/ledger-migration.ts';
-import { today } from '../src/lib/server/plan.ts';
+import { today } from '../src/lib/server/today.ts';
 import { EMAIL, hydrated, resetUser, signIn, sql } from './auth.ts';
 
 test('REstimado: a product without a public price, from Añadir producto and from the Alta', async ({

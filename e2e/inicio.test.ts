@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { createNeonDb } from '../src/lib/server/db/index.ts';
 import { runUser } from '../src/lib/server/engine-run.ts';
 import { migrateUserToLedger } from '../src/lib/server/ledger-migration.ts';
-import { today } from '../src/lib/server/plan.ts';
+import { today } from '../src/lib/server/today.ts';
 import { EMAIL, hydrated, resetUser, signIn, sql } from './auth.ts';
 
 test('Inicio on the ledger: value, what you put in and made, accounts and the main alert', async ({

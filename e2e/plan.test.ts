@@ -5,7 +5,7 @@ import { saveAutoRule } from '../src/lib/server/auto-rules.ts';
 import { createNeonDb } from '../src/lib/server/db/index.ts';
 import { runUser } from '../src/lib/server/engine-run.ts';
 import { migrateUserToLedger } from '../src/lib/server/ledger-migration.ts';
-import { today } from '../src/lib/server/plan.ts';
+import { today } from '../src/lib/server/today.ts';
 import { savePlan } from '../src/lib/server/plans.ts';
 import { EMAIL, hydrated, resetUser, signIn, sql } from './auth.ts';
 

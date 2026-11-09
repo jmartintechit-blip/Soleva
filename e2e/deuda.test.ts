@@ -3,7 +3,7 @@ import { openAccount } from '../src/lib/server/alta.ts';
 import { createNeonDb } from '../src/lib/server/db/index.ts';
 import { runUser } from '../src/lib/server/engine-run.ts';
 import { migrateUserToLedger } from '../src/lib/server/ledger-migration.ts';
-import { today } from '../src/lib/server/plan.ts';
+import { today } from '../src/lib/server/today.ts';
 import { EMAIL, hydrated, resetUser, signIn, sql } from './auth.ts';
 
 test('RDeuda: a mortgage from the Alta gets its terms, its next payment and its schedule', async ({

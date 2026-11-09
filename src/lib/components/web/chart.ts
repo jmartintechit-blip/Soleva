@@ -28,6 +28,7 @@ export function bandPaths(
     line: path(mid),
     band: `${path(hi)} ${back} Z`,
     end: { x: x(n), y: y(mid[n]!) },
+    x,
     y,
   };
 }

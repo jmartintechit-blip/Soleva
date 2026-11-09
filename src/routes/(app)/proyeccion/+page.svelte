@@ -2,95 +2,170 @@
   import { onMount } from 'svelte';
   import { bandPaths } from '#lib/components/web/chart.ts';
   import { Count } from '#lib/count.svelte.ts';
-  import { addMonths } from '#lib/engine/dates.ts';
+  import type { Scenario } from '#lib/engine/compound.ts';
+  import { daysBetween } from '#lib/engine/day.ts';
   import { formatEuros } from '#lib/engine/money.ts';
   import {
-    SCENARIOS,
-    extraMonthly,
-    oneOffExpense,
-    pauseContributions,
-    plannedAt,
-    projectScenarios,
-    status,
-  } from '#lib/engine/project.ts';
-  import { type Rule, netWorth } from '#lib/engine/rules.ts';
-  import { FOLLOWS_SCENARIO } from '#lib/labels.ts';
+    type ProjectionStep,
+    breakdown,
+    inTodayEuros,
+    milestones,
+    projectLedger,
+    roundRows,
+  } from '#lib/engine/projection.ts';
+  import { GROUPS, groupAccounts, groupNote, milestoneTexts, pct } from '#lib/projection-view.ts';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
 
-  type Scenario = (typeof SCENARIOS)[number];
+  const SCENARIOS = ['prudente', 'base', 'optimista'] as const;
   const LABEL: Record<Scenario, string> = {
     prudente: 'Prudente',
     base: 'Base',
     optimista: 'Optimista',
   };
-  const ONE_OFF_CENTS = 500_000;
+  const HORIZONS = [5, 10, 20, 30] as const;
+  type Unit = 'hoy' | 'entonces';
 
+  let unit = $state<Unit>('hoy');
   let scenario = $state<Scenario>('base');
-  let years = $state(10);
-  let extra = $state(0);
-  let paused = $state(false);
-  let oneOff = $state(false);
+  let years = $state(20);
 
-  const live = $derived(data.accounts.filter((a) => !a.archived));
-  const now = $derived(netWorth(live));
-  const start = $derived(addMonths(data.month, 1));
-  // Where "more each month" goes: the first invested account, else the first one.
-  const target = $derived(live.find((a) => FOLLOWS_SCENARIO.includes(a.kind)) ?? live[0]);
-  const cash = $derived(
-    live.find((a) => a.kind === 'efectivo' || a.kind === 'remunerada') ?? live[0],
+  const p = $derived(data.projection);
+  const startYear = $derived(Number(p.today.slice(0, 4)));
+  const endYear = $derived(startYear + years);
+  const byScenario = <T,>(f: (s: Scenario) => T) =>
+    Object.fromEntries(SCENARIOS.map((s) => [s, f(s)])) as Record<Scenario, T>;
+
+  // The engine runs here (and once on the server for the first paint): only the horizon re-runs
+  // it; the scenario picks one of the three, and the unit deflates them.
+  const runs = $derived(
+    byScenario((s) => projectLedger(p.accounts, p.today, years * 12, s, p.assumptions, p.rules)),
+  );
+  const shown = $derived(
+    unit === 'hoy' ? byScenario((s) => inTodayEuros(runs[s], p.assumptions.inflationBp)) : runs,
+  );
+  const steps = $derived(shown[scenario]);
+  const split = $derived(breakdown(steps));
+  const figure = $derived(split.figure);
+  const lo = $derived(breakdown(shown.prudente).figure);
+  const hi = $derived(breakdown(shown.optimista).figure);
+
+  // Cash only and no rules: it just follows its interest (PSoloEfectivo).
+  const cashOnly = $derived(
+    p.rules.length === 0 &&
+      p.accounts.every((a) => a.kind === 'efectivo' || a.kind === 'remunerada'),
   );
 
-  const rules = $derived.by(() => {
-    let r: Rule[] = data.rules;
-    if (extra > 0 && target) r = extraMonthly(r, target.id, extra * 100, start);
-    if (paused) r = pauseContributions(live, r, start, 6);
-    if (oneOff && cash) r = oneOffExpense(r, cash.id, ONE_OFF_CENTS, addMonths(start, 11));
-    return r;
-  });
-  const bp = $derived(data.assumptions);
-  const runs = $derived(projectScenarios(live, rules, data.month, years * 12, bp));
-  // One point a year, starting today.
-  const yearly = (s: Scenario) => [
-    now,
-    ...runs[s].filter((_, k) => k % 12 === 11).map((p) => p.realCents),
-  ];
-  const end = $derived(runs[scenario].at(-1)!);
-  // Drawn at the real width (not stretched), so the line keeps its drawing animation.
+  // The chart: a point every 3 months up to 10 years, every year after.
   let width = $state(346);
-  const height = $derived(width > 600 ? 300 : 170);
+  const wide = $derived(width > 600);
+  const height = $derived(wide ? 260 : 180);
+  const stride = $derived(years <= 10 ? 3 : 12);
+  const series = (s: readonly ProjectionStep[]) =>
+    s.filter((_, k) => k % stride === 0).map((x) => x.totalCents);
+  const line = $derived(series(steps));
   const chart = $derived(
-    bandPaths(yearly('prudente'), yearly(scenario), yearly('optimista'), width, height),
+    bandPaths(series(shown.prudente), line, series(shown.optimista), width, height),
   );
-  const put = $derived(end.contributedCents);
-  const gain = $derived(end.realCents - put);
-  const putShare = $derived(
-    end.realCents > 0
-      ? Math.min(100, Math.max(0, (put / Math.max(put, end.realCents)) * 100))
-      : 100,
-  );
-  const light = $derived.by(() => {
-    if (!data.baseline) return null;
-    const planned = plannedAt(data.baseline, data.month);
-    return planned === null ? null : status(now, planned);
-  });
-  const lastYear = $derived(Number(data.month.slice(0, 4)) + years);
 
-  const shown = new Count();
+  const texts = $derived(
+    milestoneTexts(milestones(p.accounts, p.rules, runs[scenario]), p.accounts, {
+      accounts: p.accountNames,
+      rules: p.ruleNames,
+    }),
+  );
+  // Where each milestone sits on the line (between two points, by days).
+  const dots = $derived(
+    texts.map((t) => {
+      const at = daysBetween(p.today, t.day) / ((365.25 / 12) * stride);
+      const k = Math.min(Math.floor(at), line.length - 2);
+      const v = line[k]! + (line[k + 1]! - line[k]!) * (at - k);
+      return { ...t, x: chart.x(at), y: chart.y(v), late: at * stride >= 12 };
+    }),
+  );
+  let picked = $state<string | null>(null);
+  const key = (t: { day: string; title: string }) => `${t.day}|${t.title}`;
+  const selected = $derived(dots.find((d) => key(d) === picked) ?? dots.at(-1));
+
+  // «Por tipo»: each group at the end and today, to 100 € and adding up to the figure.
+  const ends = $derived(roundRows(steps.at(-1)!.byGroup, steps.at(-1)!.totalCents).rows);
+  const starts = $derived(roundRows(steps[0]!.byGroup, steps[0]!.totalCents).rows);
+  const paidOn = $derived(
+    [...texts].reverse().find((t) => t.title.endsWith(' pagada'))?.day as string | undefined,
+  );
+  const rows = $derived(
+    GROUPS.filter((g) => groupAccounts(p.accounts, g.key).length).map((g) => {
+      const these = groupAccounts(p.accounts, g.key);
+      return {
+        ...g,
+        end: ends[g.key],
+        now: starts[g.key],
+        note: groupNote(g.key, p.accounts, scenario, p.assumptions, ends[g.key], paidOn),
+        href: these.length === 1 ? `/cuentas/${these[0]!.id}` : '/cuentas',
+      };
+    }),
+  );
+
+  const SOURCES: { key: keyof typeof split.rows; label: string; note: string }[] = [
+    { key: 'hoy', label: 'Lo que tienes hoy', note: 'Todo lo que tienes menos lo que debes' },
+    {
+      key: 'aportado',
+      label: 'Lo que aportas',
+      note: 'Lo que entra menos lo que gastas (las deudas van aparte)',
+    },
+    {
+      key: 'rentabilidad',
+      label: 'Lo que pone la rentabilidad',
+      note: 'Mercado, intereses, inmuebles y estimados',
+    },
+    { key: 'depreciacion', label: 'Lo que pierde valor', note: 'Coche y bienes' },
+    { key: 'deudas', label: 'Lo que te cuestan las deudas', note: 'Intereses de tus deudas' },
+    {
+      key: 'inflacion',
+      label: 'Lo que se come la inflación',
+      note: 'Para verlo todo en euros de hoy',
+    },
+  ];
+  const sources = $derived(
+    SOURCES.filter(
+      (s) =>
+        (s.key !== 'inflacion' || unit === 'hoy') &&
+        (s.key === 'hoy' || s.key === 'aportado' || split.rows[s.key] !== 0),
+    ),
+  );
+  const signed = (c: number) => `${c > 0 ? '+' : ''}${formatEuros(c)}`;
+
+  const a = $derived(p.assumptions);
+  const homes = $derived(Object.values(p.ipvBp));
+  const ipvText = $derived(
+    homes.length === 1
+      ? ` No usamos el ${homes[0]! > 0 ? '+' : ''}${pct(homes[0]!)} del último año de la vivienda: eso no es una previsión.`
+      : homes.length > 1
+        ? ' No usamos la variación del último año de tus viviendas: eso no es una previsión.'
+        : '',
+  );
+
+  const count = new Count();
   let mounted = false;
   $effect(() => {
-    shown.to(end.realCents, mounted ? 600 : 1500);
+    count.to(cashOnly ? steps.at(-1)!.totalCents : figure, mounted ? 600 : 1500);
     mounted = true;
   });
-  onMount(() => () => shown.stop());
+  onMount(() => () => count.stop());
 
   const values = $derived((form?.values ?? {}) as Record<string, string | undefined>);
   const errors = $derived((form?.errors ?? {}) as Record<string, string | undefined>);
-  // Bound, not set from form: an open={…} would be re-applied on every frame of the count-up.
   // svelte-ignore state_referenced_locally
   let showAssumptions = $state(!!form?.errors);
-  const pct = (b: number) => (b / 100).toString().replace('.', ',');
+  const fields = $derived([
+    { k: 'prudente', label: 'Prudente', bp: a.returnBp.prudente },
+    { k: 'base', label: 'Base', bp: a.returnBp.base },
+    { k: 'optimista', label: 'Optimista', bp: a.returnBp.optimista },
+    { k: 'inflation', label: 'Inflación', bp: a.inflationBp },
+    { k: 'rulesGrowth', label: 'Tus ingresos y gastos', bp: a.rulesGrowthBp },
+  ]);
+  const num = (bp: number) => pct(bp).slice(0, -2);
 </script>
 
 <svelte:head>
@@ -98,177 +173,314 @@
 </svelte:head>
 
 <header class="top">
-  <h1 class="sv-muted">Proyección</h1>
-  <a class="sv-btn sv-btn--accent sv-btn--sm" href="/reglas/nueva">Nueva regla</a>
+  <h1>Proyección</h1>
+  {#if p.accounts.length && !cashOnly}
+    <a
+      class="sv-btn sv-btn--ghost sv-btn--sm"
+      href="#supuestos"
+      onclick={() => (showAssumptions = true)}>Supuestos</a
+    >
+  {/if}
 </header>
 
-{#if !live.length}
-  <p class="body sv-muted empty">
-    Para proyectar tu patrimonio necesitas al menos una cuenta.
-    <a href="/cuentas/nueva">Crea la primera</a> y después tus reglas.
+{#if !p.accounts.length}
+  <section class="empty f1">
+    <svg width="56" height="56" viewBox="0 0 64 64" aria-hidden="true">
+      <path d="M14 40 A18 18 0 0 1 50 40 Z" fill="none" stroke="var(--accent)" stroke-width="2.5" />
+      <rect x="6" y="44" width="52" height="3" rx="1.5" fill="var(--ink-subtle)" />
+    </svg>
+    <h2>Aún no hay nada que proyectar</h2>
+    <p class="sv-muted">
+      Mete tu situación una vez: cuentas, piso, coche, deudas y lo que entra y sale cada mes. Soleva
+      calcula hacia dónde vas.
+    </p>
+    <a class="sv-btn sv-btn--accent" href="/alta">Empezar</a>
+  </section>
+{:else if cashOnly}
+  {@const interest = p.accounts.find((x) => x.interest)?.interest}
+  <section class="sv-hero f1">
+    <span class="sv-hero__label">Tu patrimonio dentro de {years} años</span>
+    <span class="sv-hero__value value" aria-live="polite">{formatEuros(count.value)}</span>
+    <span class="sv-hero__meta"
+      >En euros de hoy · hoy tienes <span class="ink sv-num"
+        >{formatEuros(steps[0]!.totalCents)}</span
+      ></span
+    >
+  </section>
+  <section class="f2" bind:clientWidth={width}>
+    <svg
+      viewBox="0 0 {width} 120"
+      {width}
+      height="120"
+      role="img"
+      aria-label="Tu efectivo, de {formatEuros(steps[0]!.totalCents)} a {formatEuros(
+        steps.at(-1)!.totalCents,
+      )} de hoy en {years} años"
+    >
+      <line x1="0" y1="116" x2={width} y2="116" stroke="var(--hairline)" />
+      <path
+        class="sv-draw"
+        pathLength="1"
+        d={bandPaths(line, line, line, width, 120).line}
+        fill="none"
+        stroke="var(--accent)"
+        stroke-width="2.25"
+        stroke-linecap="round"
+      />
+    </svg>
+    <div class="axis">
+      <span>Hoy</span><span>{startYear + years / 2}</span><span>{endYear}</span>
+    </div>
+  </section>
+  <section class="solo f2">
+    <p>
+      Solo tienes efectivo y ninguna regla: {interest
+        ? `crece a su interés (${pct(interest.tiers[0]?.rateBp ?? 0)} bruto)`
+        : 'no crece'}{(interest?.tiers[0]?.rateBp ?? 0) < a.inflationBp
+        ? ', que va por debajo de la inflación, así que en euros de hoy baja.'
+        : '.'}
+    </p>
+    <p class="sv-muted">
+      Añade tus reglas y planes para ver hacia dónde vas: la nómina, los gastos fijos, lo que pasas
+      al bróker.
+    </p>
+    <a class="sv-btn sv-btn--accent" href="/reglas/nueva">Añadir una regla</a>
+  </section>
+  <p class="sv-legal legal">
+    Estimación, no asesoramiento. Inflación supuesta del {pct(a.inflationBp)}.
   </p>
 {:else}
-  <section class="hero f1">
-    <div class="sv-hero">
-      <span class="sv-label">Tu patrimonio dentro de {years} años</span>
-      <span class="sv-hero__value value" aria-live="polite">{formatEuros(shown.value)}</span>
-      <span class="sv-hero__meta">
-        En euros de hoy · rango {formatEuros(runs.prudente.at(-1)!.realCents)} – {formatEuros(
-          runs.optimista.at(-1)!.realCents,
-        )}
-      </span>
-    </div>
-    <div class="sv-seg" role="group" aria-label="Escenario">
-      {#each SCENARIOS as s (s)}
-        <button
-          class="sv-seg__item"
-          type="button"
-          aria-pressed={scenario === s}
-          onclick={() => (scenario = s)}>{LABEL[s]}</button
-        >
-      {/each}
-    </div>
-  </section>
-
-  <section class="chart f2">
-    <div class="plot" bind:clientWidth={width}>
-      <svg
-        viewBox="0 0 {width} {height}"
-        {width}
-        {height}
-        role="img"
-        aria-label="Proyección a {years} años, escenario {LABEL[
-          scenario
-        ].toLowerCase()}, con el rango entre prudente y optimista"
-      >
-        <defs>
-          <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="var(--accent)" stop-opacity=".22" />
-            <stop offset="1" stop-color="var(--accent)" stop-opacity="0" />
-          </linearGradient>
-        </defs>
-        <path class="sv-morph" d={chart.band} fill="url(#band)" />
-        <path
-          class="sv-draw sv-morph"
-          pathLength="1"
-          d={chart.line}
-          fill="none"
-          stroke="var(--accent)"
-          stroke-width="2.5"
-          stroke-linecap="round"
-        />
-        <circle class="sv-halo" cx={chart.end.x} cy={chart.end.y} r="12" fill="var(--accent)" />
-        <circle cx={chart.end.x} cy={chart.end.y} r="5" fill="var(--accent)" />
-      </svg>
-    </div>
-    <div class="axis">
-      <span>Hoy</span><span>{lastYear - Math.round(years / 2)}</span><span>{lastYear}</span>
-    </div>
-    <div class="sv-seg years" role="group" aria-label="Horizonte">
-      {#each [5, 10, 20] as y (y)}
-        <button
-          class="sv-seg__item"
-          type="button"
-          aria-pressed={years === y}
-          onclick={() => (years = y)}>{y} años</button
-        >
-      {/each}
-    </div>
-  </section>
-
-  <div class="grid">
-    <div class="col">
-      <div class="f3">
-        {#if light}
-          <span class="sv-pill" class:sv-pill--ok={light.level === 'en_camino'}>
-            <span class="sv-pill__dot" class:breathe={light.level === 'en_camino'}></span>
-            {light.level === 'en_camino'
-              ? 'Vas en camino'
-              : `Algo por debajo del plan · ${formatEuros(-light.gapCents)} menos`}
-          </span>
-          <form method="POST" action="?/fijar" class="inline">
-            <button class="link">Volver a fijar mi plan con lo de hoy</button>
-          </form>
-        {:else}
-          <form method="POST" action="?/fijar" class="fix">
-            <p class="body-sm sv-muted">
-              Fija esta proyección como tu plan y cada mes verás si vas en camino.
-            </p>
-            <button class="sv-btn sv-btn--ghost sv-btn--sm">Fijar como mi plan</button>
-          </form>
-        {/if}
+  <div class="layout">
+    <div class="controls f1">
+      <div class="sv-seg units" role="group" aria-label="Unidades">
+        {#each [['hoy', 'Euros de hoy'], ['entonces', 'Euros de entonces']] as const as [u, label] (u)}
+          <button
+            class="sv-seg__item"
+            type="button"
+            aria-pressed={unit === u}
+            onclick={() => (unit = u)}>{label}</button
+          >
+        {/each}
       </div>
-
-      <div class="split f4">
-        <div class="split__row">
-          <span class="sv-muted">Tú aportas</span><span class="sv-num">{formatEuros(put)}</span>
-        </div>
-        <div class="sv-split" aria-hidden="true">
-          <span class="sv-split__a" style:width="{putShare}%"></span>
-          <span class="sv-split__b" style:width="{100 - putShare}%"></span>
-        </div>
-        <div class="split__row">
-          <span class="sv-muted">Pone la rentabilidad</span>
-          <span class="sv-num accent">{gain >= 0 ? '+' : '−'}{formatEuros(Math.abs(gain))}</span>
-        </div>
+      <div class="chips" role="group" aria-label="Escenario">
+        {#each SCENARIOS as s (s)}
+          <button
+            class="sv-seg__item chip"
+            type="button"
+            aria-pressed={scenario === s}
+            onclick={() => (scenario = s)}>{LABEL[s]}</button
+          >
+        {/each}
+      </div>
+      <div class="chips" role="group" aria-label="Horizonte">
+        {#each HORIZONS as y (y)}
+          <button
+            class="sv-seg__item chip"
+            type="button"
+            aria-pressed={years === y}
+            onclick={() => {
+              years = y;
+              picked = null;
+            }}>{y} años</button
+          >
+        {/each}
       </div>
     </div>
 
-    <div class="col f5">
-      <h2 class="sv-label">¿Qué pasa si…?</h2>
-      <label class="slider">
-        <span class="split__row">
-          <span class="sv-muted">Aporto más cada mes</span>
-          <span class="sv-num">{extra ? `+${formatEuros(extra * 100)} / mes` : 'Nada más'}</span>
-        </span>
-        <input class="sv-range" type="range" min="0" max="1000" step="25" bind:value={extra} />
-      </label>
-      <label class="toggle">
-        <span>Pauso mis aportaciones 6 meses</span>
-        <input type="checkbox" class="sv-switch" role="switch" bind:checked={paused} />
-      </label>
-      <label class="toggle">
-        <span
-          >Un gasto de {formatEuros(ONE_OFF_CENTS)} dentro de un año
-          <span class="sv-muted">(un coche…)</span></span
+    <div class="col main">
+      <section class="sv-hero hero f1">
+        <span class="sv-hero__label">Tu patrimonio dentro de {years} años</span>
+        <span class="sv-hero__value value" aria-live="polite">{formatEuros(count.value)}</span>
+        <span class="sv-hero__meta"
+          >{unit === 'hoy' ? 'En euros de hoy' : `En euros de ${endYear}`} · rango
+          <span class="ink sv-num">{formatEuros(lo).slice(0, -2)} – {formatEuros(hi)}</span></span
         >
-        <input type="checkbox" class="sv-switch" role="switch" bind:checked={oneOff} />
-      </label>
+      </section>
 
-      <details class="assumptions" bind:open={showAssumptions}>
-        <summary
-          >Supuestos · {pct(bp.prudente)} / {pct(bp.base)} / {pct(bp.optimista)} % al año, inflación {pct(
-            bp.inflation,
-          )} %</summary
-        >
-        <form method="POST" action="?/supuestos">
-          {#each [['prudente', 'Prudente'], ['base', 'Base'], ['optimista', 'Optimista'], ['inflation', 'Inflación']] as [k, label] (k)}
-            <label class="sv-field">
-              <span class="sv-field__label">{label}</span>
-              <span class="sv-field__box">
-                <input
-                  class="sv-field__input"
-                  name={k}
-                  inputmode="decimal"
-                  value={values[k!] ??
-                    pct(bp[k as 'prudente' | 'base' | 'optimista' | 'inflation'])}
-                  aria-invalid={!!errors[k!]}
-                />
-                <span class="sv-field__suffix">% al año</span>
-              </span>
-              {#if errors[k!]}<span class="err">{errors[k!]}</span>{/if}
-            </label>
+      <section class="chart f2">
+        <div class="plot" bind:clientWidth={width}>
+          <svg
+            viewBox="0 0 {width} {height}"
+            {width}
+            {height}
+            role="img"
+            aria-label="Proyección a {years} años: {formatEuros(figure)}, rango {formatEuros(
+              lo,
+            )} a {formatEuros(hi)}"
+          >
+            <defs>
+              <linearGradient id="band" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="var(--accent)" stop-opacity=".22" />
+                <stop offset="1" stop-color="var(--accent)" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <line x1="0" y1={height - 4} x2={width} y2={height - 4} stroke="var(--hairline)" />
+            <path class="sv-morph" d={chart.band} fill="url(#band)" />
+            <path
+              class="sv-draw sv-morph"
+              pathLength="1"
+              d={chart.line}
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            {#each dots as d (key(d))}
+              {@const on = selected && key(selected) === key(d)}
+              <circle cx={d.x} cy={d.y} r={on ? 5 : 4} class="dot" class:on />
+              {#if wide && d.late}
+                <text x={d.x} y={d.y + 22} class="date" text-anchor="middle">{d.label}</text>
+              {/if}
+            {/each}
+            <circle class="sv-halo" cx={chart.end.x} cy={chart.end.y} r="10" fill="var(--accent)" />
+            <circle cx={chart.end.x} cy={chart.end.y} r="4" fill="var(--accent)" />
+          </svg>
+          <!-- The dots as real buttons, over the chart, so they can be reached and read. -->
+          {#each dots as d (key(d))}
+            <button
+              type="button"
+              class="hit"
+              style:left="{d.x}px"
+              style:top="{d.y}px"
+              aria-label="{d.label}: {d.title}"
+              aria-pressed={!!selected && key(selected) === key(d)}
+              onclick={() => (picked = key(d))}
+            ></button>
           {/each}
-          <button class="sv-btn sv-btn--ghost sv-btn--sm">Guardar supuestos</button>
-        </form>
-      </details>
+        </div>
+        <div class="axis">
+          <span>Hoy</span><span>{startYear + Math.round(years / 2)}</span><span>{endYear}</span>
+        </div>
+        {#if selected}
+          <p class="picked" aria-live="polite">
+            <span class="ring" aria-hidden="true"></span>
+            <span
+              ><span><span class="mono">{selected.label}</span> · {selected.title}</span>
+              <span class="sv-subtle small">{selected.detail}</span></span
+            >
+          </p>
+        {/if}
+        <span class="small sv-subtle"
+          >La banda va del escenario prudente al optimista.{dots.length
+            ? ' Toca un punto para ver qué pasa ese día.'
+            : ''}</span
+        >
+      </section>
+
+      <section class="f3">
+        <h2 class="sv-label">De dónde sale</h2>
+        {#each sources as s (s.key)}
+          <div class="line">
+            <span class="what"
+              ><span>{s.label}</span><span class="small sv-subtle">{s.note}</span></span
+            >
+            <span
+              class="sv-num amount"
+              class:accent={s.key !== 'hoy' && split.rows[s.key] > 0}
+              class:neg={s.key !== 'hoy' && split.rows[s.key] < 0}
+              >{s.key === 'hoy' ? formatEuros(split.rows[s.key]) : signed(split.rows[s.key])}</span
+            >
+          </div>
+        {/each}
+        <div class="line total">
+          <span>Dentro de {years} años</span><span class="sv-num">{formatEuros(figure)}</span>
+        </div>
+      </section>
+
+      <section id="supuestos" class="assumptions">
+        <details bind:open={showAssumptions}>
+          <summary>
+            <span class="what"
+              ><span>Supuestos</span><span class="small sv-muted"
+                >{num(a.returnBp.prudente)} / {num(a.returnBp.base)} / {num(a.returnBp.optimista)} % al
+                año · inflación {pct(a.inflationBp)}</span
+              ></span
+            >
+            <svg class="chev" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"
+              ><path d="M6 9l6 6 6-6" /></svg
+            >
+          </summary>
+          <form method="POST" action="?/supuestos">
+            {#each fields as f (f.k)}
+              <label class="sv-field">
+                <span class="sv-field__label">{f.label}</span>
+                <span class="sv-field__box">
+                  <input
+                    class="sv-field__input"
+                    name={f.k}
+                    inputmode="decimal"
+                    value={values[f.k] ?? num(f.bp)}
+                    aria-invalid={!!errors[f.k]}
+                  />
+                  <span class="sv-field__suffix">% al año</span>
+                </span>
+                {#if f.k === 'rulesGrowth' && p.rulesGrowthFollowsInflation && !errors[f.k]}
+                  <span class="sv-field__hint">Como la inflación</span>
+                {/if}
+                {#if errors[f.k]}<span class="err">{errors[f.k]}</span>{/if}
+              </label>
+            {/each}
+            <p class="small sv-subtle note">
+              Lo de cada cuenta (el interés de una remunerada, la subida de un piso, la tabla del
+              coche, el % de un estimado) se cambia en su cuenta.
+            </p>
+            <button class="sv-btn sv-btn--ghost sv-btn--sm">Guardar supuestos</button>
+          </form>
+        </details>
+      </section>
+
+      <p class="sv-legal legal">
+        Estimación, no asesoramiento. Rentabilidades supuestas, no garantizadas, sin impuestos de
+        una venta futura. El Euríbor se queda en el de hoy.{ipvText}
+      </p>
+    </div>
+
+    <div class="col side">
+      <section class="types f2">
+        <div class="head">
+          <h2 class="sv-label">Por tipo</h2>
+          <span class="small sv-subtle">Hoy → {endYear}</span>
+        </div>
+        {#each rows as r (r.key)}
+          <a class="line link" href={r.href}>
+            <span class="what">
+              <span class="name"
+                >{r.label}{#if r.key === 'estimados'}<span class="tag">Estimación</span>{/if}</span
+              >
+              <span class="small sv-subtle">{r.note}</span>
+            </span>
+            <span class="ends sv-num">
+              <span class="amount" class:neg={r.end < 0}
+                >{r.key === 'deudas' && r.end < 0
+                  ? `Quedan ${formatEuros(-r.end)}`
+                  : formatEuros(r.end)}</span
+              >
+              <span class="small sv-subtle">hoy {formatEuros(r.now)}</span>
+            </span>
+          </a>
+        {/each}
+        <span class="small sv-subtle foot"
+          >Cada fila lleva a su cuenta, donde se cambia su supuesto.</span
+        >
+      </section>
+
+      {#if texts.length}
+        <section class="events f3">
+          <h2 class="sv-label">Lo que va a pasar</h2>
+          {#each texts as t (key(t))}
+            <div class="event">
+              <span class="mono sv-muted">{t.label}</span>
+              <span class="what"
+                ><span class="name">{t.title}</span><span class="small sv-muted">{t.detail}</span
+                ></span
+              >
+            </div>
+          {/each}
+        </section>
+      {/if}
     </div>
   </div>
-
-  <p class="sv-legal">
-    Estimación, no asesoramiento. Rentabilidades supuestas, no garantizadas; las cuentas de
-    inversión, pensiones y cripto crecen al escenario elegido y el resto a su propio interés.
-  </p>
 {/if}
 
 <style>
@@ -277,156 +489,317 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
-    margin-bottom: var(--space-6);
+    margin-bottom: var(--space-5);
   }
   h1 {
     margin: 0;
-    font-size: 15px;
-    font-weight: 500;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
   }
-  .empty {
-    max-width: 48ch;
+  h2 {
+    margin: 0 0 4px;
   }
-  .hero {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: var(--space-5);
+  .small {
+    font-size: 12px;
+  }
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .ink {
+    color: var(--ink);
+  }
+  .accent {
+    color: var(--accent);
+  }
+  .neg {
+    color: var(--negative);
   }
   .value {
-    font-size: clamp(44px, 6vw, 72px);
+    font-size: clamp(44px, 6vw, 64px);
+  }
+
+  /* Mobile: one column in the design's order; desktop: two (b13/PProyeccionEscritorio). */
+  .layout {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+  .col {
+    display: contents;
+  }
+  .hero {
+    order: 1;
+  }
+  .controls {
+    order: 2;
   }
   .chart {
-    margin: var(--space-6) 0;
+    order: 3;
+  }
+  .f3:not(.events) {
+    order: 4;
+  }
+  .types {
+    order: 5;
+  }
+  .events {
+    order: 6;
+  }
+  .assumptions {
+    order: 7;
+  }
+  .legal {
+    order: 8;
+    margin: 0;
+  }
+  @media (min-width: 1024px) {
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+      gap: 28px 56px;
+    }
+    .col {
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      min-width: 0;
+    }
+    .layout .controls {
+      order: 0;
+      grid-column: 1 / -1;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .units {
+      width: 290px;
+    }
+    .chips {
+      width: 300px;
+    }
+  }
+
+  .controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .units {
+    display: flex;
+  }
+  .units .sv-seg__item,
+  .chip {
+    flex: 1 1 0;
+    padding: 0 6px;
+    white-space: nowrap;
+  }
+  .chips {
+    display: flex;
+    gap: 4px;
+  }
+  .chip {
+    height: 34px;
+  }
+  .chip:not([aria-pressed='true']) {
+    box-shadow: inset 0 0 0 1px var(--hairline-strong);
+  }
+
+  .chart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .plot {
+    position: relative;
   }
   svg {
     display: block;
     overflow: visible;
   }
+  .dot {
+    fill: var(--bg);
+    stroke: var(--accent);
+    stroke-opacity: 0.6;
+    stroke-width: 2;
+  }
+  .dot.on {
+    stroke-opacity: 1;
+  }
+  .date {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    fill: var(--ink-subtle);
+  }
+  .hit {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    margin: -14px 0 0 -14px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    cursor: pointer;
+  }
+  .hit:focus-visible {
+    outline: 2px solid var(--accent);
+  }
   .axis {
     display: flex;
     justify-content: space-between;
-    margin-top: 6px;
     font-family: var(--font-mono);
     font-size: 11px;
-    color: var(--ink-muted);
+    color: var(--ink-subtle);
   }
-  .years {
-    margin-top: var(--space-4);
-  }
-  .grid {
-    display: grid;
-    gap: var(--space-6);
-  }
-  @media (min-width: 1024px) {
-    .grid {
-      grid-template-columns: 1fr 1fr;
-      gap: var(--space-7);
-    }
-  }
-  .col {
+  .picked {
     display: flex;
-    flex-direction: column;
-    gap: var(--space-5);
-    min-width: 0;
-  }
-  h2 {
+    align-items: baseline;
+    gap: 8px;
+    min-height: 36px;
     margin: 0;
-  }
-  .inline,
-  .fix {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-3);
-    margin-top: var(--space-3);
-  }
-  .fix p {
-    margin: 0;
-  }
-  .link {
-    border: 0;
-    padding: 0;
-    min-height: 32px;
-    background: none;
-    color: var(--ink-muted);
-    font: inherit;
+    padding-top: 4px;
     font-size: 13px;
-    text-decoration: underline;
-    cursor: pointer;
   }
-  .breathe {
-    background: var(--accent);
-    animation: breathe 2.4s ease-in-out infinite;
-  }
-  @keyframes breathe {
-    50% {
-      box-shadow: 0 0 0 6px transparent;
-    }
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 var(--accent-line);
-    }
-  }
-  .split {
+  .picked > span:last-child {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: var(--space-4) 0;
-    border-top: 1px solid var(--hairline);
+    gap: 1px;
+  }
+  .picked .mono {
+    color: var(--ink-muted);
+  }
+  .ring {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 2px var(--accent);
+    transform: translateY(-1px);
+  }
+
+  .line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    min-height: 50px;
     border-bottom: 1px solid var(--hairline);
   }
-  .split__row {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-3);
-    font-size: 13px;
-  }
-  .sv-split span {
-    transition: width var(--duration-base) var(--ease-out);
-  }
-  .accent {
-    color: var(--accent);
-  }
-  .slider {
+  .what {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
+    min-width: 0;
+    font-size: 14px;
   }
-  .toggle {
+  .amount {
+    flex: 0 0 auto;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .total {
+    border: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 4px;
+  }
+  .types,
+  .events {
+    display: flex;
+    flex-direction: column;
+  }
+  .link {
+    padding: 10px 0;
+    color: var(--ink);
+    text-decoration: none;
+    transition: background var(--duration-fast) var(--ease-standard);
+  }
+  .link:hover {
+    background: linear-gradient(90deg, transparent, var(--accent-soft) 50%, transparent);
+  }
+  .link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+  }
+  .tag {
+    padding: 1px 7px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent-line);
+  }
+  .ends {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    white-space: nowrap;
+  }
+  .foot {
+    padding-top: 8px;
+  }
+  .event {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .event .mono {
+    padding-top: 2px;
+  }
+
+  .assumptions summary {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
-    min-height: 44px;
-    font-size: 14px;
+    gap: 12px;
+    min-height: 52px;
+    border-top: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
     cursor: pointer;
+    list-style: none;
   }
-  .toggle .sv-switch {
-    appearance: none;
-    margin: 0;
+  .assumptions summary::-webkit-details-marker {
+    display: none;
   }
-  .toggle .sv-switch:checked {
-    background: var(--accent);
+  .assumptions summary .what > span:first-child {
+    font-weight: 500;
   }
-  .toggle .sv-switch:checked::after {
-    transform: translateX(18px);
-    background: var(--on-accent);
+  .chev {
+    fill: none;
+    stroke: var(--ink-muted);
+    stroke-width: 2;
+    stroke-linecap: round;
+    transition: transform var(--duration-fast) var(--ease-standard);
   }
-  .assumptions summary {
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-    font-size: 14px;
-    color: var(--ink-muted);
-    cursor: pointer;
+  details[open] .chev {
+    transform: rotate(180deg);
   }
   .assumptions form {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: var(--space-4);
-    padding-top: var(--space-3);
+    padding-top: var(--space-4);
+  }
+  .note {
+    grid-column: 1 / -1;
+    margin: 0;
+    line-height: 1.45;
   }
   .assumptions button {
     justify-self: start;
@@ -435,15 +808,38 @@
     font-size: 13px;
     color: var(--negative);
   }
-  .sv-legal {
-    margin: var(--space-7) 0 0;
+  .legal {
     max-width: 72ch;
+    font-size: 12px;
+    line-height: 1.5;
   }
+
+  .empty,
+  .solo {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-4);
+    max-width: 48ch;
+  }
+  .empty {
+    margin-top: var(--space-7);
+  }
+  .empty h2 {
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .empty p,
+  .solo p {
+    margin: 0;
+  }
+  .solo {
+    margin-top: var(--space-5);
+  }
+
   .f1,
   .f2,
-  .f3,
-  .f4,
-  .f5 {
+  .f3 {
     animation: sv-fade-up 0.8s var(--ease-out) both;
   }
   .f2 {
@@ -452,19 +848,10 @@
   .f3 {
     animation-delay: 0.2s;
   }
-  .f4 {
-    animation-delay: 0.3s;
-  }
-  .f5 {
-    animation-delay: 0.4s;
-  }
   @media (prefers-reduced-motion: reduce) {
     .f1,
     .f2,
-    .f3,
-    .f4,
-    .f5,
-    .breathe {
+    .f3 {
       animation: none;
     }
   }

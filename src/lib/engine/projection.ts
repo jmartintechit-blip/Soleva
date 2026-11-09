@@ -86,7 +86,8 @@ export interface ProjectionStep {
 
 const INVESTED: AccountKind[] = ['broker', 'cripto', 'pension'];
 const DEBTS: AccountKind[] = ['deuda_hipoteca', 'deuda_prestamo'];
-const groupOfCash = (k: AccountKind): Group =>
+// Where an account's cash goes (its units go to «inversiones», its estimates to «estimados»).
+export const groupOfCash = (k: AccountKind): Group =>
   INVESTED.includes(k)
     ? 'inversiones'
     : DEBTS.includes(k)

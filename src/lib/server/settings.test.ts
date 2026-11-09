@@ -19,18 +19,34 @@ afterEach(() => db.close());
 
 describe('settings', () => {
   it('uses the defaults until saved, then keeps each user apart', async () => {
-    expect(await getSettings(db, 'ana')).toEqual({ assumptions: ASSUMPTIONS_BP, baseline: null });
-    const mine = { prudente: 200, base: 500, optimista: 700, inflation: 200 };
+    const defaults = { ...ASSUMPTIONS_BP, rulesGrowth: null };
+    expect(await getSettings(db, 'ana')).toEqual({ assumptions: defaults, baseline: null });
+    const mine = { prudente: 200, base: 500, optimista: 700, inflation: 200, rulesGrowth: null };
     await saveAssumptions(db, 'ana', mine);
     await saveBaseline(db, 'ana', { from: '2026-10', cents: [1, 2] });
     expect(await getSettings(db, 'ana')).toEqual({
       assumptions: mine,
       baseline: { from: '2026-10', cents: [1, 2] },
     });
-    expect((await getSettings(db, 'eva')).assumptions).toEqual(ASSUMPTIONS_BP);
+    expect((await getSettings(db, 'eva')).assumptions).toEqual(defaults);
     await saveBaseline(db, 'ana', null);
     expect((await getSettings(db, 'ana')).assumptions).toEqual(mine);
     expect((await getSettings(db, 'ana')).baseline).toBeNull();
+  });
+
+  it('keeps «Tus ingresos y gastos» unless it is sent, and null follows the inflation', async () => {
+    const a = { prudente: 300, base: 600, optimista: 800, inflation: 250 };
+    await saveAssumptions(db, 'ana', { ...a, rulesGrowth: 400 });
+    expect((await getSettings(db, 'ana')).assumptions.rulesGrowth).toBe(400);
+    await saveAssumptions(db, 'ana', { ...a, inflation: 300 });
+    expect((await getSettings(db, 'ana')).assumptions).toEqual({
+      ...a,
+      inflation: 300,
+      rulesGrowth: 400,
+    });
+    await saveAssumptions(db, 'ana', { ...a, rulesGrowth: null });
+    expect((await getSettings(db, 'ana')).assumptions.rulesGrowth).toBeNull();
+    expect(assumptionsInput.safeParse({ ...a, rulesGrowth: 6000 }).success).toBe(false);
   });
 
   it('requires prudente ≤ base ≤ optimista', () => {

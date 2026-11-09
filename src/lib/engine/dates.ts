@@ -8,8 +8,11 @@ const fromIndex = (i: number): Month =>
 export const addMonths = (m: Month, n: number): Month => fromIndex(index(m) + n);
 export const monthsBetween = (from: Month, to: Month): number => index(to) - index(from);
 
+const DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 export function daysInMonth(m: Month): number {
-  return new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate();
+  const y = Number(m.slice(0, 4));
+  const n = Number(m.slice(5, 7));
+  return n === 2 && y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0) ? 29 : DAYS[n - 1]!;
 }
 
 // A rule on day 31 falls on the last day of shorter months (30, 29 or 28).

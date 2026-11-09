@@ -19,7 +19,7 @@ export async function exportData(db: Db, userId: string) {
          coalesce(s.optimistic_bp, 800) as optimistic_bp, coalesce(s.inflation_bp, 250) as inflation_bp,
          coalesce(s.reminder_day, 1) as reminder_day,
          coalesce(s.reminder_enabled, true) as reminder_enabled,
-         s.plan_baseline::text as plan_baseline
+         s.rules_growth_bp, s.plan_baseline::text as plan_baseline
        from "user" u left join settings s on s.user_id = u.id where u.id = $1`),
     q(`select id, name, kind, ${eur('balance_cents')} as balance_eur, is_estimated, annual_rate_bp,
          ${iso('archived_at')} as archived_at, closed_on::text as closed_on,
@@ -98,6 +98,13 @@ export async function exportData(db: Db, userId: string) {
     q(`select account_id, ${month('month')} as month, ${eur('value_cents')} as value_eur,
          ${eur('flows_cents')} as flows_eur
        from account_month where account_id in (${OWN}) order by month, account_id`),
+    // «Mi plan»: one row per month of its path, in euros of then.
+    q(`select p.fixed_on::text as fixed_on, p.scenario, p.months, p.unit,
+         ${eur('p.final_cents')} as final_eur, s.ord - 1 as step, s.e->>'day' as day,
+         ((s.e->>'totalCents')::bigint / 100.0)::float8 as total_eur,
+         ((s.e->>'contributedCents')::bigint / 100.0)::float8 as contributed_eur
+       from fixed_plan p cross join lateral jsonb_array_elements(p.path) with ordinality s(e, ord)
+       where p.user_id = $1 order by s.ord`),
   ]);
   const [
     movimientos,
@@ -115,6 +122,7 @@ export async function exportData(db: Db, userId: string) {
     alertas,
     patrimonio_diario,
     historico_mensual,
+    mi_plan,
   ] = ledger;
   return {
     ajustes,
@@ -137,6 +145,7 @@ export async function exportData(db: Db, userId: string) {
     alertas,
     patrimonio_diario,
     historico_mensual,
+    mi_plan,
   };
 }
 
@@ -163,6 +172,7 @@ export const EXPORT_TABLES = [
   'alertas',
   'patrimonio_diario',
   'historico_mensual',
+  'mi_plan',
 ] as const satisfies ExportTable[];
 
 // As Excel in Spanish opens it: ";" between cells and a decimal comma (1623,45). Otherwise

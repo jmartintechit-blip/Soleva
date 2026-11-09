@@ -6,8 +6,24 @@ export type Day = string;
 
 const toUtc = (d: Day) =>
   Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
-const fromUtc = (ms: number): Day => new Date(ms).toISOString().slice(0, 10);
 const DAY_MS = 86_400_000;
+const pad2 = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+// Days since 1970-01-01 → 'YYYY-MM-DD' by calendar arithmetic (H. Hinnant's civil_from_days):
+// the projection walks ~11.000 days per scenario and `toISOString` was most of its time.
+function fromUtc(ms: number): Day {
+  const z = Math.floor(ms / DAY_MS) + 719_468;
+  const era = Math.floor(z / 146_097);
+  const doe = z - era * 146_097;
+  const yoe = Math.floor(
+    (doe - Math.floor(doe / 1460) + Math.floor(doe / 36_524) - Math.floor(doe / 146_096)) / 365,
+  );
+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+  const mp = Math.floor((5 * doy + 2) / 153);
+  const d = doy - Math.floor((153 * mp + 2) / 5) + 1;
+  const m = mp < 10 ? mp + 3 : mp - 9;
+  const y = yoe + era * 400 + (m <= 2 ? 1 : 0);
+  return `${String(y).padStart(4, '0')}-${pad2(m)}-${pad2(d)}`;
+}
 
 export const addDays = (d: Day, n: number): Day => fromUtc(toUtc(d) + n * DAY_MS);
 export const daysBetween = (from: Day, to: Day): number =>

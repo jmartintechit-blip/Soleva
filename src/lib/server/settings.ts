@@ -16,6 +16,8 @@ export const assumptionsInput = z
     base: rate(-5000, 5000),
     optimista: rate(-5000, 5000),
     inflation: rate(-2000, 5000),
+    // «Tus ingresos y gastos»: null follows the inflation; left out, it stays as it was.
+    rulesGrowth: rate(-2000, 5000).nullable().optional(),
   })
   .refine((a) => a.prudente <= a.base && a.base <= a.optimista, {
     path: ['base'],
@@ -29,24 +31,26 @@ export async function getSettings(db: Db, userId: string) {
     base: number;
     optimista: number;
     inflation: number;
+    rulesGrowth: number | null;
     baseline: Baseline | null;
   }>(
     `select prudent_bp as prudente, base_bp as base, optimistic_bp as optimista,
-       inflation_bp as inflation, plan_baseline as baseline
+       inflation_bp as inflation, rules_growth_bp as "rulesGrowth", plan_baseline as baseline
      from settings where user_id = $1`,
     [userId],
   );
-  const { baseline = null, ...assumptions } = row ?? { ...ASSUMPTIONS_BP };
+  const { baseline = null, ...assumptions } = row ?? { ...ASSUMPTIONS_BP, rulesGrowth: null };
   return { assumptions: assumptions as Assumptions, baseline };
 }
 
 export async function saveAssumptions(db: Db, userId: string, a: Assumptions) {
+  const growth = a.rulesGrowth !== undefined;
   await db.query(
-    `insert into settings (user_id, prudent_bp, base_bp, optimistic_bp, inflation_bp)
-     values ($1, $2, $3, $4, $5)
+    `insert into settings (user_id, prudent_bp, base_bp, optimistic_bp, inflation_bp, rules_growth_bp)
+     values ($1, $2, $3, $4, $5, $6)
      on conflict (user_id) do update set prudent_bp = $2, base_bp = $3, optimistic_bp = $4,
-       inflation_bp = $5, updated_at = now()`,
-    [userId, a.prudente, a.base, a.optimista, a.inflation],
+       inflation_bp = $5, ${growth ? 'rules_growth_bp = $6,' : ''} updated_at = now()`,
+    [userId, a.prudente, a.base, a.optimista, a.inflation, a.rulesGrowth ?? null],
   );
 }
 

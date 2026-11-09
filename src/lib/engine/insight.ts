@@ -85,6 +85,8 @@ const CLASS_OF: Record<InstrumentKind, AssetClass> = {
 export function valuation(h: Holdings, ledger: readonly Movement[], day: Day) {
   const book = fold(ledger, day);
   const byAccount: Record<string, number> = {};
+  // Each holding's value too (`${account}|${instrument}`), for the projection.
+  const byHolding: Record<string, number> = {};
   const byClass: Record<AssetClass, number> = {
     liquidez: 0,
     renta_variable: 0,
@@ -151,9 +153,10 @@ export function valuation(h: Holdings, ledger: readonly Movement[], day: Day) {
       cents = quote && fx ? valueCents(held.qtyE8, quote.priceE8, fx) : held.costCents;
     }
     add(account, CLASS_OF[kind], cents);
+    byHolding[key] = cents;
   }
   const total = Object.values(byAccount).reduce((s, c) => s + c, 0);
-  return { total, byAccount, byClass };
+  return { total, byAccount, byClass, byHolding };
 }
 
 // An estimate's contributions: each buy at what left the cash, from its day; units added as already

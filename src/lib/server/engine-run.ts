@@ -4,6 +4,7 @@ import {
   type Market,
   accruedInterest,
   advance,
+  interestSince,
 } from '#lib/engine/advance.ts';
 import { type Day, addDays, daysAfter, monthOf } from '#lib/engine/day.ts';
 import type { DebtTerms } from '#lib/engine/debt.ts';
@@ -22,6 +23,7 @@ import { M2_STEP, assetIndex, vehicleIndex } from '#lib/engine/valuation.ts';
 import { type InterestTerms, isPayDay } from '#lib/engine/interest.ts';
 import { type Movement, fold, holdingKey } from '#lib/engine/ledger.ts';
 import { reprice } from '#lib/engine/reconcile.ts';
+import type { ProjectedAccount } from '#lib/engine/projection.ts';
 import { E8 } from '#lib/engine/units.ts';
 import type { Db } from './db/index.ts';
 
@@ -103,6 +105,7 @@ interface Setup {
     accountId: string;
     valueOn: Day;
     method: 'm2' | 'propio';
+    growthBp: number;
     flows: [Day, string, Movement['kind']][];
     index: [Day, number][];
   }[];
@@ -177,7 +180,7 @@ async function readSetup(tx: Db, userId: string): Promise<Setup> {
          from asset s where s.account_id in (select id from a)),
        -- Whole, also in a compact run: each value is indexed from its own day.
        'properties', (select coalesce(json_agg(json_build_object('accountId', p.account_id,
-           'valueOn', p.value_on, 'method', p.value_method,
+           'valueOn', p.value_on, 'method', p.value_method, 'growthBp', p.growth_bp,
            'flows', (select coalesce(json_agg(json_build_array(m.day, m.amount_cents::text, m.kind)
                        order by m.day, m.seq), '[]')
                      from movement m where m.account_id = p.account_id and m.voided_at is null),
@@ -797,4 +800,57 @@ export async function runUserIn(tx: Db, userId: string, today: Day) {
     ],
   );
   return { generated: fresh.length, repriced: repriced.length, alerts: found.length };
+}
+
+// What the projection starts from (B13): each account the user owns and has not given up, valued
+// at the end of `day` as Inicio values it (interest earned and not paid yet included), split into
+// what grows how: cash (with its interest terms), units at the day's close, estimates at their
+// rate, a home at its owner's growth, a car or good along its series, a debt with its terms.
+// Also each home's last yearly change of INE's index, which the projection never uses.
+export async function projectionInputs(tx: Db, userId: string, day: Day) {
+  const setup = await readSetup(tx, userId);
+  const { ledger, holdings, input } = await loadUser(tx, userId, setup, day, false);
+  const value = valuation(holdings, ledger, day);
+  const book = fold(ledger, day);
+  const accrued = interestSince(input, ledger, day);
+  const homes = new Map(setup.properties.map((p) => [p.accountId, p]));
+  const accounts: ProjectedAccount[] = [];
+  for (const a of holdings.accounts) {
+    if (a.closedOn && a.closedOn <= day) continue;
+    const p: ProjectedAccount = { id: a.id, kind: a.kind, cashCents: book.cash.get(a.id) ?? 0 };
+    const terms = input.interest[a.id];
+    if (terms) Object.assign(p, { interest: terms, accruedMicro: accrued[a.id] ?? 0n });
+    if (input.debts[a.id]) p.debt = input.debts[a.id];
+    const series = holdings.properties[a.id];
+    if (a.kind === 'inmueble' && series)
+      Object.assign(p, {
+        cashCents: 0,
+        home: { cents: value.byAccount[a.id] ?? 0, growthBp: homes.get(a.id)?.growthBp ?? 0 },
+      });
+    else if ((a.kind === 'vehiculo' || a.kind === 'bien') && series)
+      Object.assign(p, { cashCents: 0, curve: series });
+    let invested = 0;
+    for (const [key, cents] of Object.entries(value.byHolding)) {
+      const [account, instrument] = key.split('|') as [string, string];
+      if (account !== a.id) continue;
+      if (holdings.instruments[instrument]?.kind === 'estimado')
+        (p.estimates ??= []).push({
+          instrumentId: instrument,
+          cents,
+          rateBp: holdings.estimates[key] ?? 0,
+        });
+      else invested += cents;
+    }
+    if (invested) p.investedCents = invested;
+    accounts.push(p);
+  }
+  const ipvBp: Record<string, number> = {};
+  for (const h of setup.properties) {
+    const known = h.index.filter(([q]) => q <= day);
+    const last = known.at(-1);
+    const yearBefore = last && known.findLast(([q]) => q <= addDays(last[0], -365));
+    if (last && yearBefore && yearBefore[1] > 0)
+      ipvBp[h.accountId] = Math.round((last[1] / yearBefore[1] - 1) * 10_000);
+  }
+  return { accounts, rules: input.rules, ipvBp };
 }

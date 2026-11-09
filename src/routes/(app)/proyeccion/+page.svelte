@@ -250,7 +250,8 @@
                   class="sv-field__input"
                   name={k}
                   inputmode="decimal"
-                  value={values[k!] ?? pct(bp[k as keyof typeof bp])}
+                  value={values[k!] ??
+                    pct(bp[k as 'prudente' | 'base' | 'optimista' | 'inflation'])}
                   aria-invalid={!!errors[k!]}
                 />
                 <span class="sv-field__suffix">% al año</span>

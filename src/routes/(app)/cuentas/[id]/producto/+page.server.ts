@@ -3,7 +3,7 @@ import { parseUnits } from '#lib/engine/units.ts';
 import { loadAccountView } from '#lib/server/account-view.ts';
 import { runUser } from '#lib/server/engine-run.ts';
 import { missingIsins, searchProducts } from '#lib/server/market/search.ts';
-import { today } from '#lib/server/plan.ts';
+import { today } from '#lib/server/today.ts';
 import { addProduct, quote } from '#lib/server/product.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';

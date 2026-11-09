@@ -8,7 +8,7 @@ import {
   readGoodForm,
   updateGood,
 } from './goods.ts';
-import { today } from './plan.ts';
+import { today } from './today.ts';
 import { closedOn } from './removal.ts';
 import { requireUserId } from './session.ts';
 

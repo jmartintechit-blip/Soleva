@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { bandPaths } from '#lib/components/web/chart.ts';
   import { Count } from '#lib/count.svelte.ts';
   import type { Scenario } from '#lib/engine/compound.ts';
@@ -13,7 +13,15 @@
     projectLedger,
     roundRows,
   } from '#lib/engine/projection.ts';
-  import { GROUPS, groupAccounts, groupNote, milestoneTexts, pct } from '#lib/projection-view.ts';
+  import { pillText } from '#lib/how-am-i.ts';
+  import {
+    GROUPS,
+    groupAccounts,
+    groupNote,
+    milestoneTexts,
+    monthLabel,
+    pct,
+  } from '#lib/projection-view.ts';
   import type { PageProps } from './$types';
 
   let { data, form }: PageProps = $props();
@@ -27,9 +35,9 @@
   const HORIZONS = [5, 10, 20, 30] as const;
   type Unit = 'hoy' | 'entonces';
 
-  let unit = $state<Unit>('hoy');
-  let scenario = $state<Scenario>('base');
-  let years = $state(20);
+  let unit = $state<Unit>(untrack(() => data.view.unit));
+  let scenario = $state<Scenario>(untrack(() => data.view.scenario));
+  let years = $state(untrack(() => data.view.years));
 
   const p = $derived(data.projection);
   const startYear = $derived(Number(p.today.slice(0, 4)));
@@ -146,10 +154,47 @@
         : '',
   );
 
+  // Cómo voy and ¿Qué pasa si…? open with this screen's controls.
+  const viewQuery = $derived(`escenario=${scenario}&anos=${years}&unidad=${unit}`);
+  const hasPlan = $derived(p.rules.some((r) => r.kind === 'plan' && r.active));
+  const hasDebt = $derived(p.accounts.some((x) => x.debt && x.cashCents < 0));
+  const whatifs = $derived([
+    {
+      label: 'Aporto más cada mes',
+      note: hasPlan ? 'A tu plan o a una cuenta, de 50 en 50 €' : 'A una cuenta, de 50 en 50 €',
+      href: `/proyeccion/que-pasa-si?${viewQuery}`,
+    },
+    ...(hasPlan
+      ? [
+          {
+            label: 'Pauso mi plan',
+            note: 'De 1 a 24 meses',
+            href: `/proyeccion/que-pasa-si?${viewQuery}&que=pausa`,
+          },
+        ]
+      : []),
+    {
+      label: 'Un gasto único',
+      note: 'p. ej. 15.000 € dentro de un año, un coche…',
+      href: `/proyeccion/que-pasa-si?${viewQuery}&que=gasto`,
+    },
+    ...(hasDebt
+      ? [
+          {
+            label: 'Amortizar o invertir',
+            note: 'Dos caminos con tus números',
+            href: `/proyeccion/amortizar?${viewQuery}`,
+          },
+        ]
+      : []),
+  ]);
+
   const count = new Count();
   let mounted = false;
   $effect(() => {
-    count.to(cashOnly ? steps.at(-1)!.totalCents : figure, mounted ? 600 : 1500);
+    const target = cashOnly ? steps.at(-1)!.totalCents : figure;
+    // Untracked: `to` reads the current value, which would restart the count on every frame.
+    untrack(() => count.to(target, mounted ? 600 : 1500));
     mounted = true;
   });
   onMount(() => () => count.stop());
@@ -171,6 +216,19 @@
 <svelte:head>
   <title>Proyección · Soleva</title>
 </svelte:head>
+
+{#snippet chevron()}
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="var(--ink-muted)"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg
+  >
+{/snippet}
 
 <header class="top">
   <h1>Proyección</h1>
@@ -437,6 +495,43 @@
     </div>
 
     <div class="col side">
+      <section class="how f1">
+        <h2 class="sv-label">Cómo voy</h2>
+        {#if data.how}
+          <a class="line link go" href="/proyeccion/como-voy">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="what grow"
+              ><span class="name">{pillText(data.how.status)}</span><span class="small sv-muted"
+                >Plan fijado el {Number(data.how.fixedOn.slice(8, 10))}
+                {monthLabel(data.how.fixedOn)} · ver por qué</span
+              ></span
+            >
+            {@render chevron()}
+          </a>
+        {:else}
+          <a class="line link go" href="/proyeccion/como-voy?{viewQuery}">
+            <span class="what grow"
+              ><span class="name">Fija esta proyección como tu plan</span><span
+                class="small sv-muted">Cada mes verás si vas en camino y por qué</span
+              ></span
+            >
+            {@render chevron()}
+          </a>
+        {/if}
+      </section>
+
+      <section class="whatif f2">
+        <h2 class="sv-label">¿Qué pasa si…?</h2>
+        {#each whatifs as w (w.href)}
+          <a class="line link go" href={w.href}>
+            <span class="what grow"
+              ><span class="name">{w.label}</span><span class="small sv-muted">{w.note}</span></span
+            >
+            {@render chevron()}
+          </a>
+        {/each}
+      </section>
+
       <section class="types f2">
         <div class="head">
           <h2 class="sv-label">Por tipo</h2>
@@ -544,15 +639,39 @@
   .types {
     order: 5;
   }
-  .events {
+  .how {
     order: 6;
   }
-  .assumptions {
+  .whatif {
     order: 7;
   }
-  .legal {
+  .events {
     order: 8;
+  }
+  .assumptions {
+    order: 9;
+  }
+  .legal {
+    order: 10;
     margin: 0;
+  }
+  .how,
+  .whatif {
+    display: flex;
+    flex-direction: column;
+  }
+  .go {
+    justify-content: flex-start;
+  }
+  .grow {
+    flex: 1 1 auto;
+  }
+  .how .dot {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    border-radius: 50%;
+    background: var(--accent);
   }
   @media (min-width: 1024px) {
     .layout {

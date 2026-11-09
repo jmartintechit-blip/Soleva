@@ -28,7 +28,11 @@
     accounts={data.ledger.accounts}
     assets={'assets' in data.ledger ? data.ledger.assets : []}
     today={data.ledger.today}
-    form={form && 'values' in form ? (form as Parameters<typeof RuleForm>[1]['form']) : null}
+    form={form && 'values' in form
+      ? (form as Parameters<typeof RuleForm>[1]['form'])
+      : 'prefill' in data.ledger && data.ledger.prefill
+        ? { values: data.ledger.prefill }
+        : null}
   />
 {:else}
   <Legacy {data} {form} />

@@ -1,6 +1,6 @@
 import { createNeonDb } from './db/index.ts';
 import { rehearseCutOver } from './ledger-migration.ts';
-import { today } from './plan.ts';
+import { today } from './today.ts';
 
 // The cut-over to the ledger as a rehearsal on the database in DATABASE_URL: each v0 user in a
 // transaction that is rolled back. Prints, per user and without names or ids, how many accounts,

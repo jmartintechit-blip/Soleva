@@ -10,7 +10,7 @@ import {
   proposeClose,
 } from '#lib/server/closes.ts';
 import type { Db } from '#lib/server/db/index.ts';
-import { today } from '#lib/server/plan.ts';
+import { today } from '#lib/server/today.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 

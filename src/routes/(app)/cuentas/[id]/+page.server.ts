@@ -12,7 +12,7 @@ import {
 import { loadAccountView } from '#lib/server/account-view.ts';
 import { bareAsset } from '#lib/server/goods.ts';
 import { closedOn } from '#lib/server/removal.ts';
-import { today } from '#lib/server/plan.ts';
+import { today } from '#lib/server/today.ts';
 import { fieldErrors, requireUserId } from '#lib/server/session.ts';
 import { FOLLOWS_SCENARIO } from '#lib/labels.ts';
 import type { Actions, PageServerLoad } from './$types';

@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { ASSUMPTIONS_BP } from '#lib/engine/compound.ts';
-import type { Baseline } from '#lib/engine/project.ts';
 import type { Db } from './db/index.ts';
 
 const rate = (min: number, max: number) =>
@@ -32,15 +31,14 @@ export async function getSettings(db: Db, userId: string) {
     optimista: number;
     inflation: number;
     rulesGrowth: number | null;
-    baseline: Baseline | null;
   }>(
     `select prudent_bp as prudente, base_bp as base, optimistic_bp as optimista,
-       inflation_bp as inflation, rules_growth_bp as "rulesGrowth", plan_baseline as baseline
+       inflation_bp as inflation, rules_growth_bp as "rulesGrowth"
      from settings where user_id = $1`,
     [userId],
   );
-  const { baseline = null, ...assumptions } = row ?? { ...ASSUMPTIONS_BP, rulesGrowth: null };
-  return { assumptions: assumptions as Assumptions, baseline };
+  // v0's settings.plan_baseline stays in the table (and the export) until after v1.0.0.
+  return { assumptions: (row ?? { ...ASSUMPTIONS_BP, rulesGrowth: null }) as Assumptions };
 }
 
 export async function saveAssumptions(db: Db, userId: string, a: Assumptions) {
@@ -51,14 +49,6 @@ export async function saveAssumptions(db: Db, userId: string, a: Assumptions) {
      on conflict (user_id) do update set prudent_bp = $2, base_bp = $3, optimistic_bp = $4,
        inflation_bp = $5, ${growth ? 'rules_growth_bp = $6,' : ''} updated_at = now()`,
     [userId, a.prudente, a.base, a.optimista, a.inflation, a.rulesGrowth ?? null],
-  );
-}
-
-export async function saveBaseline(db: Db, userId: string, b: Baseline | null) {
-  await db.query(
-    `insert into settings (user_id, plan_baseline) values ($1, $2)
-     on conflict (user_id) do update set plan_baseline = $2, updated_at = now()`,
-    [userId, b === null ? null : JSON.stringify(b)],
   );
 }
 

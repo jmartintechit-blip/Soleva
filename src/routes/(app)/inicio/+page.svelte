@@ -5,8 +5,8 @@
   import Logo from '#lib/components/Logo.svelte';
   import { Count } from '#lib/count.svelte.ts';
   import { formatEuros } from '#lib/engine/money.ts';
+  import { pillText } from '#lib/how-am-i.ts';
   import { CLASS_LABEL, KIND_LABEL, PERIODS, type PeriodKey } from '#lib/labels.ts';
-  import Legacy from './Legacy.svelte';
   import type { PageProps } from './$types';
 
   let { data }: PageProps = $props();
@@ -30,17 +30,14 @@
   const short = (day: string) =>
     new Date(`${day}T12:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 
-  const p = $derived(data.ledger ? data.periods[key]! : null);
-  const accounts = $derived(
-    data.ledger ? data.accounts.map((a) => ({ ...a, made: p?.accounts[a.id] ?? 0 })) : [],
-  );
-  const top = $derived(data.ledger ? data.alerts[0] : undefined);
+  const p = $derived(data.periods[key]!);
+  const accounts = $derived(data.accounts.map((a) => ({ ...a, made: p?.accounts[a.id] ?? 0 })));
+  const top = $derived(data.alerts[0]);
   const initial = $derived((page.data.email as string)?.[0]?.toUpperCase() ?? '·');
 
   // The breakdown in the accent's shades, largest first (debts are not an asset).
   const SHADES = [1, 0.7, 0.45, 0.3, 0.2, 0.12];
   const split = $derived.by(() => {
-    if (!data.ledger) return [];
     const parts = Object.entries(data.classes)
       .filter(([k, v]) => k !== 'deudas' && v > 0)
       .sort((a, b) => b[1] - a[1]);
@@ -76,7 +73,7 @@
 
   const shown = new Count();
   onMount(() => {
-    if (data.ledger) shown.to(data.periods.mes!.value, 1500);
+    shown.to(data.periods.mes!.value, 1500);
     return () => shown.stop();
   });
 </script>
@@ -85,9 +82,7 @@
   <title>Inicio · Soleva</title>
 </svelte:head>
 
-{#if !data.ledger}
-  <Legacy {data} />
-{:else if p}
+{#if p}
   <div class="home">
     <header class="top">
       <span class="logo"><Logo /></span>
@@ -141,6 +136,26 @@
           ><span class:up={p.change > 0} class:down={p.change < 0}>{eur(p.change, true)}</span>
           {LONG[key]}</span
         >
+        {#if data.how}
+          <a
+            class="sv-pill pill"
+            class:sv-pill--ok={data.how.level === 'en_camino'}
+            href="/proyeccion/como-voy"
+          >
+            <span class="sv-pill__dot dot" class:breathe={data.how.level === 'en_camino'}></span>
+            <span>{pillText(data.how)}</span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg
+            >
+          </a>
+        {/if}
       </section>
       <section class="chart f2" bind:clientWidth={width}>
         <svg
@@ -394,6 +409,33 @@
   }
   .kicker {
     font-size: 14px;
+  }
+  /* Cómo voy: information, never an alarm (no red). */
+  .pill {
+    align-self: flex-start;
+    margin-top: var(--space-3);
+    min-height: 44px;
+    box-sizing: border-box;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .pill svg {
+    color: var(--ink-muted);
+  }
+  .pill .dot {
+    background: var(--accent);
+  }
+  .pill:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .breathe {
+    animation: sv-breathe 2.4s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .breathe {
+      animation: none;
+    }
   }
   .value {
     font-size: 48px;

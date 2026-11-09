@@ -8,7 +8,7 @@ import { madridToday } from '#lib/engine/day.ts';
 import { type Job, daily, marketDeps, work } from '#lib/server/daily.ts';
 import { createNeonDb } from '#lib/server/db/index.ts';
 import { sendEmail } from '#lib/server/email.ts';
-import { today } from '#lib/server/plan.ts';
+import { today } from '#lib/server/today.ts';
 import { sendReminders } from '#lib/server/reminders.ts';
 
 export default {

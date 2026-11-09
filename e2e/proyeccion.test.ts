@@ -41,6 +41,31 @@ test('home and projection follow the accounts and rules, live', async ({ page })
     'true',
   );
 
+  // ¿Qué pasa si…? tries 50 € more a month into the bank, from the other account.
+  await page.getByRole('link', { name: /Aporto más cada mes/ }).click();
+  await hydrated(page);
+  const diff = page.locator('.value');
+  const before = await diff.textContent();
+  await page.getByRole('button', { name: 'Más: aportación' }).click();
+  await expect(diff).not.toHaveText(before!);
+  await expect(page.getByRole('link', { name: 'Crear la transferencia' })).toHaveAttribute(
+    'href',
+    /tipo=transferencia/,
+  );
+
+  // Cómo voy: fixed from the server, and then also a pill in Inicio.
+  await page.goto('/proyeccion');
+  await hydrated(page);
+  await page.getByRole('link', { name: /Fija esta proyección como tu plan/ }).click();
+  await hydrated(page);
+  await page.getByRole('button', { name: 'Fijar como mi plan' }).click();
+  await expect(page.getByText('Vas en camino', { exact: true })).toBeVisible();
+  await expect(page.getByText('Previsto para hoy', { exact: true })).toBeVisible();
+  await page.goto('/inicio');
+  await expect(page.getByRole('link', { name: /Vas en camino/ })).toBeVisible();
+
+  await page.goto('/proyeccion');
+  await hydrated(page);
   await page.getByRole('link', { name: 'Supuestos' }).click();
   await page.getByRole('textbox', { name: /^Base/ }).fill('9');
   await page.getByRole('button', { name: 'Guardar supuestos' }).click();

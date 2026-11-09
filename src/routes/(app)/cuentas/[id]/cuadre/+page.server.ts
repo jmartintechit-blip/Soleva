@@ -4,7 +4,7 @@ import { parseUnits } from '#lib/engine/units.ts';
 import { MAX_CENTS } from '#lib/server/accounts.ts';
 import { loadCuadre, saveCuadre } from '#lib/server/cuadre.ts';
 import { runUser } from '#lib/server/engine-run.ts';
-import { today } from '#lib/server/plan.ts';
+import { today } from '#lib/server/today.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 

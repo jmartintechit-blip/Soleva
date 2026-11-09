@@ -13,12 +13,13 @@ import {
 import { runUser } from '#lib/server/engine-run.ts';
 import { planContext, planLegs, readPlanForm, savePlan } from '#lib/server/plans.ts';
 import { quote } from '#lib/server/product.ts';
-import { today as madridToday } from '#lib/server/plan.ts';
+import { today as madridToday } from '#lib/server/today.ts';
 import { createRule, deleteRule, getRule, ruleInput, updateRule } from '#lib/server/rules.ts';
 import { fieldErrors, requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 const NEW = 'nueva';
+const PREFILL = ['tipo', 'name', 'amount', 'from', 'to', 'frequency', 'day', 'start'] as const;
 
 export const load: PageServerLoad = async (event) => {
   const userId = await requireUserId(event);
@@ -54,8 +55,24 @@ export const load: PageServerLoad = async (event) => {
       ruleAssets(db, userId),
     ]);
     if (!auto && !accounts.length) redirect(303, '/alta');
+    // A new rule can come filled in from ¿Qué pasa si…? (only these fields, as typed text).
+    const prefill = auto
+      ? null
+      : Object.fromEntries(
+          PREFILL.flatMap((k) => {
+            const v = event.url.searchParams.get(k);
+            return v && v.length <= 60 ? [[k, v]] : [];
+          }),
+        );
     return {
-      ledger: { rule: auto, accounts, assets, today: madridToday(), plan: null },
+      ledger: {
+        rule: auto,
+        accounts,
+        assets,
+        today: madridToday(),
+        plan: null,
+        prefill: prefill && Object.keys(prefill).length ? prefill : null,
+      },
       rule: null,
       accounts: [],
       month: '',

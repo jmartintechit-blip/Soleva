@@ -3,7 +3,7 @@ import { ASSUMPTIONS_BP } from '#lib/engine/compound.ts';
 import type { Db } from './db/index.ts';
 import { migrate } from './db/migrate.ts';
 import { createPgliteDb } from './db/pglite.ts';
-import { assumptionsInput, getSettings, saveAssumptions, saveBaseline } from './settings.ts';
+import { assumptionsInput, getSettings, saveAssumptions } from './settings.ts';
 
 let db: Db;
 beforeEach(async () => {
@@ -20,18 +20,11 @@ afterEach(() => db.close());
 describe('settings', () => {
   it('uses the defaults until saved, then keeps each user apart', async () => {
     const defaults = { ...ASSUMPTIONS_BP, rulesGrowth: null };
-    expect(await getSettings(db, 'ana')).toEqual({ assumptions: defaults, baseline: null });
+    expect(await getSettings(db, 'ana')).toEqual({ assumptions: defaults });
     const mine = { prudente: 200, base: 500, optimista: 700, inflation: 200, rulesGrowth: null };
     await saveAssumptions(db, 'ana', mine);
-    await saveBaseline(db, 'ana', { from: '2026-10', cents: [1, 2] });
-    expect(await getSettings(db, 'ana')).toEqual({
-      assumptions: mine,
-      baseline: { from: '2026-10', cents: [1, 2] },
-    });
+    expect(await getSettings(db, 'ana')).toEqual({ assumptions: mine });
     expect((await getSettings(db, 'eva')).assumptions).toEqual(defaults);
-    await saveBaseline(db, 'ana', null);
-    expect((await getSettings(db, 'ana')).assumptions).toEqual(mine);
-    expect((await getSettings(db, 'ana')).baseline).toBeNull();
   });
 
   it('keeps «Tus ingresos y gastos» unless it is sent, and null follows the inflation', async () => {

@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { StoredAlert } from '#lib/alerts.ts';
-import { today } from '#lib/server/plan.ts';
+import { today } from '#lib/server/today.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 

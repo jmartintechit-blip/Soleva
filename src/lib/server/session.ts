@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { z } from 'zod';
 import { enterApp } from './ledger-migration.ts';
-import { today } from './plan.ts';
+import { today } from './today.ts';
 
 type Event = { locals: App.Locals; request: Request };
 

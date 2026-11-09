@@ -123,7 +123,16 @@ export async function getFixedPlan(db: Db, userId: string): Promise<FixedPlan | 
 // Cómo voy today: today's net worth (as Inicio has it) against the plan, and since the day it was
 // fixed what the rules brought in (incomes minus expenses) and what moved outside them (by hand,
 // reconciliation adjustments, one-off expenses, a new account's opening). Null without a plan.
-export async function howAmIToday(db: Db, userId: string, p: Projection) {
+export const howAmIToday = (db: Db, userId: string, p: Projection) =>
+  howAmIOn(
+    db,
+    userId,
+    p.today,
+    projectLedger(p.accounts, p.today, 0, 'base', p.assumptions)[0]!.totalCents,
+  );
+
+// The same from today's net worth as Inicio already has it (without loading the projection).
+export async function howAmIOn(db: Db, userId: string, today: Day, total: number) {
   const plan = await getFixedPlan(db, userId);
   if (!plan) return null;
   const [flows] = await db.query<{ rules: string; outside: string }>(
@@ -135,13 +144,13 @@ export async function howAmIToday(db: Db, userId: string, p: Projection) {
      where m.account_id in (select account_id from account_access
                             where user_id = $1 and role = 'propietario')
        and m.voided_at is null and m.day > $2 and m.day <= $3`,
-    [userId, plan.fixedOn, p.today],
+    [userId, plan.fixedOn, today],
   );
-  const total = projectLedger(p.accounts, p.today, 0, 'base', p.assumptions)[0]!.totalCents;
-  const status = howAmI(plan, p.today, {
+  const actual = {
     totalCents: total,
     rulesCents: Number(flows!.rules),
     outsideCents: Number(flows!.outside),
-  });
-  return status && { plan, status };
+  };
+  const status = howAmI(plan, today, actual);
+  return status && { plan, status, actual };
 }

@@ -1,8 +1,8 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { parsePercent } from '#lib/engine/money.ts';
 import { runUser } from '#lib/server/engine-run.ts';
-import { today } from '#lib/server/plan.ts';
-import { loadProjection } from '#lib/server/projection.ts';
+import { today } from '#lib/server/today.ts';
+import { howAmIToday, loadProjection, viewInput } from '#lib/server/projection.ts';
 import { fieldErrors, requireUserId } from '#lib/server/session.ts';
 import { assumptionsInput, getSettings, saveAssumptions } from '#lib/server/settings.ts';
 import type { Actions, PageServerLoad } from './$types';
@@ -19,7 +19,20 @@ export const load: PageServerLoad = async (event) => {
   );
   // Catch up first if the cron has not run for this user yet today, as Inicio does.
   if (state && state.through < day) await runUser(db, userId, day);
-  return { projection: await loadProjection(db, userId, day) };
+  const projection = await loadProjection(db, userId, day);
+  const how = projection.accounts.length ? await howAmIToday(db, userId, projection) : null;
+  // Coming back from Cómo voy or ¿Qué pasa si…?, the controls as they were.
+  const q = event.url.searchParams;
+  const view = viewInput.safeParse({
+    scenario: q.get('escenario') ?? undefined,
+    years: q.get('anos') ?? undefined,
+    unit: q.get('unidad') ?? undefined,
+  });
+  return {
+    projection,
+    how: how && { status: how.status, fixedOn: how.plan.fixedOn },
+    view: view.success ? view.data : viewInput.parse({}),
+  };
 };
 
 const KEYS = ['prudente', 'base', 'optimista', 'inflation', 'rulesGrowth'] as const;

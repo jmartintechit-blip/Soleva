@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { haciendaValue, searchVehicles } from '#lib/server/goods.ts';
-import { today } from '#lib/server/plan.ts';
+import { today } from '#lib/server/today.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { RequestHandler } from './$types';
 

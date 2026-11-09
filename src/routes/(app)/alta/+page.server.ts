@@ -4,7 +4,7 @@ import { MAX_CENTS } from '#lib/server/accounts.ts';
 import { ALTA_KINDS, type AltaKind, WITH_PRODUCTS } from '#lib/labels.ts';
 import { openAccount } from '#lib/server/alta.ts';
 import { runUser } from '#lib/server/engine-run.ts';
-import { today } from '#lib/server/plan.ts';
+import { today } from '#lib/server/today.ts';
 import { requireUserId } from '#lib/server/session.ts';
 import type { Actions, PageServerLoad } from './$types';
 
